@@ -16,7 +16,7 @@ except:
     pass
 
 # [비상용] Secrets가 죽어도 안 되면, 아래 따옴표 안에 키를 직접 넣고 테스트하세요. (성공 후엔 지우세요!)
-# api_key = "AIzaSyDBNznVZkEMTkOfDZF028qSV3MtwR5HGSM" 
+ api_key = "AIzaSyDBNznVZkEMTkOfDZF028qSV3MtwR5HGSM" 
 
 if not api_key:
     st.error("🚨 API 키를 찾을 수 없습니다! [Manage app] > [Settings] > [Secrets] 설정을 확인해주세요.")
