@@ -33,6 +33,8 @@ if "view_mode" not in st.session_state:
     st.session_state.view_mode = "Standard" 
 if "temp_setting" not in st.session_state:
     st.session_state.temp_setting = 0.7
+if "raw_error" not in st.session_state: # 에러 추적용
+    st.session_state.raw_error = ""
 
 BAR_RAISER_CRITERIA = {
     "Transform": "Create Enduring Value",
@@ -44,10 +46,10 @@ LEVEL_GUIDELINES = {
     "IC-L3": "[기본기 실무자] 가이드 하 업무 수행.", "IC-L4": "[자기완결 실무자] 목표 내 실행.",
     "IC-L5": "[핵심 전문가] 문제 해결 주도.", "IC-L6": "[선도적 전문가] 파트 리드.",
     "IC-L7": "[최고 권위자] 전사 혁신.", "M-L5": "[유닛 리더] 과제 운영.",
-    "M-L6": "[시니어 리더] 유닛 성과 및 육성 관리.", "M-L7": "[디렉터] 전략 총괄."
+    "M-L6": "[시니어 리더] 육성 관리.", "M-L7": "[디렉터] 전략 총괄."
 }
 
-# --- 3. 핵심 함수 (보정 및 추적 로직 강화) ---
+# --- 3. 핵심 함수 (안전 필터 해제 및 파싱 강화) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -59,33 +61,42 @@ def fetch_jd(url):
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
     api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key:
-        return [{"q": "API 키를 찾을 수 없습니다.", "i": "Secrets 설정을 확인하세요."}]
-
-    prompt = f"""[Role] Bar Raiser Interviewer. [Level] {level}. [Focus] {BAR_RAISER_CRITERIA[category]}.
-    Create 10 interview questions in Korean. Return ONLY a valid JSON array of objects with keys "q" and "i".
-    Format: [{{"q": "질문", "i": "의도"}}]"""
+    prompt = f"""당신은 전문 면접관입니다. 후보자의 레벨({level})과 가치({BAR_RAISER_CRITERIA[category]})에 집중하여 이력서와 JD를 분석해 질문 10개를 만드세요.
+    반드시 한국어로 작성하고, 다른 설명 없이 오직 JSON 배열만 출력하세요. 
+    형식: [{{"q": "질문", "i": "의도"}}]"""
     
     try:
         pdf_base64 = base64.b64encode(resume_file.getvalue()).decode('utf-8')
+        # 모델 안정성을 위해 v1beta 사용
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        
         data = {
             "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": "application/pdf", "data": pdf_base64}}]}],
-            "generationConfig": {"temperature": st.session_state.temp_setting}
+            "generationConfig": {"temperature": st.session_state.temp_setting},
+            # 안전 필터 최대한 해제 (이력서 내 단어 오판 방지)
+            "safetySettings": [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
+            ]
         }
         res = requests.post(url, json=data, timeout=60)
         res_json = res.json()
         
-        if 'candidates' in res_json:
+        if 'candidates' in res_json and 'content' in res_json['candidates'][0]:
             raw_content = res_json['candidates'][0]['content']['parts'][0]['text']
-            # JSON만 추출하는 정규식 사용 (AI가 사족을 붙여도 무관하게)
-            json_match = re.search(r'\[.*\]', raw_content, re.DOTALL)
+            # JSON 추출 로직 강화
+            json_match = re.search(r'\[\s*{.*}\s*\]', raw_content, re.DOTALL)
             if json_match:
-                parsed = json.loads(json_match.group())
-                return parsed
-        return [{"q": "AI가 응답을 생성하지 못했습니다.", "i": "API 응답 형식을 확인하세요."}]
+                return json.loads(json_match.group())
+        
+        # 에러 추적 로그 기록
+        st.session_state.raw_error = str(res_json)
+        return []
     except Exception as e:
-        return [{"q": f"오류 발생: {str(e)}", "i": "네트워크 혹은 API 키 오류입니다."}]
+        st.session_state.raw_error = str(e)
+        return []
 
 # --- 4. 사이드바 ---
 with st.sidebar:
@@ -100,8 +111,8 @@ with st.sidebar:
         url_input = st.text_input("URL 입력")
         jd_fetched = fetch_jd(url_input) if url_input else None
         if url_input:
-            if jd_fetched: st.success("✅ JD 분석 완료 (내용 식별됨)")
-            else: st.error("❌ JD 내용을 가져오지 못했습니다. 텍스트를 직접 입력하세요.")
+            if jd_fetched: st.success("✅ JD 분석 완료")
+            else: st.error("❌ 분석 불가. 직접 입력하세요.")
     with tab2:
         jd_text_area = st.text_area("내용 붙여넣기", height=150)
     jd_final = jd_text_area if jd_text_area else jd_fetched
@@ -112,12 +123,11 @@ with st.sidebar:
     st.divider()
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
         if resume_file and jd_final:
-            with st.spinner("바레이저가 이력서를 정독 중입니다..."):
+            with st.spinner("질문 생성 중..."):
                 for cat in ["Transform", "Tomorrow", "Together"]:
                     st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
             st.rerun()
-        else:
-            st.warning("⚠️ 이력서 PDF와 JD 내용이 모두 준비되어야 합니다.")
+        else: st.warning("이력서와 JD를 모두 넣어주세요.")
 
     st.divider()
     st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
@@ -125,8 +135,13 @@ with st.sidebar:
         for key in list(st.session_state.keys()): del st.session_state[key]
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
+    
+    # [설정] 에러 로그 확인용
     with st.expander("⚙️"):
         st.session_state.temp_setting = st.slider("Temp", 0.0, 1.0, st.session_state.temp_setting)
+        if st.session_state.raw_error:
+            st.caption("최근 에러 로그:")
+            st.code(st.session_state.raw_error[:200])
 
 # --- 5. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
@@ -138,13 +153,10 @@ if c_v3.button("↔️ 면접관 노트만 보기", use_container_width=True): s
 
 st.divider()
 
-
-
 def render_questions():
     st.subheader("🎯 제안 질문 리스트")
-    # 질문 생성 여부 체크
     if not any(st.session_state.ai_questions.values()):
-        st.info("왼쪽 사이드바에서 정보를 입력한 후 **[질문 생성 시작 🚀]** 버튼을 눌러주세요.")
+        st.info("정보 입력 후 [질문 생성 시작 🚀] 버튼을 눌러주세요.")
         return
 
     for cat in ["Transform", "Tomorrow", "Together"]:
@@ -153,21 +165,20 @@ def render_questions():
             with c2:
                 st.markdown('<div class="v-center">', unsafe_allow_html=True)
                 if st.button("🔄", key=f"ref_{cat}"):
-                    if resume_file and jd_final:
-                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
-                        st.rerun()
+                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
+                    st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
             st.divider()
             
             for i, q in enumerate(st.session_state.ai_questions.get(cat, [])):
-                q_val, i_val = q.get('q',''), q.get('i','')
+                q_val, i_val = q.get('q','질문 생성 실패'), q.get('i','형식 오류')
                 qc, ac = st.columns([0.94, 0.06])
                 with qc:
                     st.markdown(f"<div class='q-block'><div class='q-text'>Q. {q_val}</div><div style='color:gray; font-size:0.85rem;'>🎯 의도: {i_val}</div></div>", unsafe_allow_html=True)
                 with ac:
                     st.markdown('<div class="v-center">', unsafe_allow_html=True)
                     if st.button("➕", key=f"add_{cat}_{i}"):
-                        if q_val and q_val not in [sq['q'] for sq in st.session_state.selected_questions]:
+                        if q_val not in [sq['q'] for sq in st.session_state.selected_questions]:
                             st.session_state.selected_questions.append({"q": q_val, "cat": cat, "memo": ""})
                     st.markdown('</div>', unsafe_allow_html=True)
                 st.divider()
@@ -188,14 +199,14 @@ def render_notes():
                 st.session_state.selected_questions.pop(idx); st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         
-        q_v, m_v = item.get('q',''), item.get('memo','')
+        q_v = item.get('q','')
         q_h = max(80, (len(q_v) // 35) * 25 + 35)
         st.session_state.selected_questions[idx]['q'] = st.text_area(f"qn_{idx}", value=q_v, label_visibility="collapsed", height=q_h, key=f"aq_{idx}")
-        st.session_state.selected_questions[idx]['memo'] = st.text_area(f"mn_{idx}", value=m_v, placeholder="답변 메모...", label_visibility="collapsed", height=150, key=f"am_{idx}")
+        st.session_state.selected_questions[idx]['memo'] = st.text_area(f"mn_{idx}", value=item.get('memo',''), placeholder="답변 메모...", label_visibility="collapsed", height=150, key=f"am_{idx}")
         st.markdown("<div style='margin-bottom:15px; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
 
     if st.session_state.selected_questions:
-        txt_out = f"후보자: {candidate_name if candidate_name else '미입력'}\n"
+        txt_out = f"후보자: {candidate_name}\n"
         for s in st.session_state.selected_questions:
             txt_out += f"\n[{s.get('cat','Custom')}] Q: {s.get('q','')}\nA: {s.get('memo','')}\n"
         st.download_button("💾 면접 결과 저장 (.txt)", txt_out, f"Result_{candidate_name}.txt", type="primary", use_container_width=True)
