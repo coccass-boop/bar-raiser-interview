@@ -6,19 +6,34 @@ import datetime
 import re
 from bs4 import BeautifulSoup
 
-# --- 1. 디자인 CSS (선생님 확정안 100% 유지) ---
+# --- 1. 디자인 CSS (선생님 확정안 100% 유지: 수직 중앙 정렬 및 여백) ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
     <style>
+    /* 1. 글자 깨짐 방지 및 최소 너비 확보 */
     [data-testid="column"] { min-width: 320px !important; }
+    .stMarkdown p, .stSubheader { word-break: keep-all !important; }
+
+    /* 2. 아이콘 버튼(🔄, ➕, ✕) 수직 중앙 정렬 (선생님 확정안) */
     .v-center {
-        display: flex !important; align-items: center !important; justify-content: center !important;
-        height: 100% !important; padding-top: 10px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        height: 100% !important;
+        padding-top: 10px !important;
     }
-    .v-center button { height: 32px !important; width: 32px !important; padding: 0px !important; }
+    .v-center button {
+        height: 32px !important;
+        width: 32px !important;
+        padding: 0px !important;
+    }
+
+    /* 3. 텍스트 겹침 방지 및 가독성 여백 */
     .q-block { margin-bottom: 15px !important; padding-bottom: 5px !important; }
     .q-text { font-size: 16px !important; font-weight: 600 !important; line-height: 1.6 !important; margin-bottom: 8px !important; }
+
+    /* 4. 사이드바 스타일 및 초기화 버튼 */
     [data-testid="stSidebar"] .stButton button { width: 100% !important; height: auto !important; }
     .reset-btn button { background-color: #ff4b4b !important; color: white !important; border: none !important; }
     </style>
@@ -39,14 +54,19 @@ BAR_RAISER_CRITERIA = {
     "Together": "Trust & Growth"
 }
 
+# [복구 완료] 레벨 가이드라인 8종 및 상세 설명 전수 기재
 LEVEL_GUIDELINES = {
-    "IC-L3": "[기본기 실무자] 가이드 하 업무 수행.", "IC-L4": "[자기완결 실무자] 목표 내 실행.",
-    "IC-L5": "[핵심 전문가] 문제 해결 주도.", "IC-L6": "[선도적 전문가] 파트 리드.",
-    "IC-L7": "[최고 권위자] 전사 혁신.", "M-L5": "[유닛 리더] 과제 운영.",
-    "M-L6": "[시니어 리더] 육성 관리.", "M-L7": "[디렉터] 전략 총괄."
+    "IC-L3": "[기본기 실무자] 가이드 하 업무 수행, 기초 지식 학습.",
+    "IC-L4": "[자기완결 실무자] 목표 내 업무 독립적 계획/실행.",
+    "IC-L5": "[핵심 전문가] 최적 대안 제시 및 전파, 복잡 문제 해결.",
+    "IC-L6": "[선도적 전문가] 파트 리드, 성과 선순환 구조 구축.",
+    "IC-L7": "[최고 권위자] 전사 혁신 주도, 업계 표준 정의.",
+    "M-L5": "[유닛 리더] 과제 운영 및 프로젝트 성공 리딩.",
+    "M-L6": "[시니어 리더] 유닛 성과 및 육성 관리.",
+    "M-L7": "[디렉터] 전략 방향 및 조직 시너시 총괄."
 }
 
-# --- 3. 핵심 함수 (404 에러 방지용 멀티 엔진 시스템) ---
+# --- 3. 핵심 함수 (안정적인 v1 API 경로 사용) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -58,50 +78,48 @@ def fetch_jd(url):
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
     api_key = st.secrets.get("GEMINI_API_KEY")
-    prompt = f"[Role] Bar Raiser Interviewer. [Value] {BAR_RAISER_CRITERIA[category]}. Create 10 Questions JSON."
+    prompt = f"[Role] Bar Raiser. [Value] {BAR_RAISER_CRITERIA[category]}. [Level] {level}. Create 10 Questions JSON."
+    
+    # 멀티모달(이미지/PDF) 지원
     file_ext = resume_file.name.split('.')[-1].lower()
     mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
     file_content = base64.b64encode(resume_file.getvalue()).decode('utf-8')
     
-    # [명확한 해결책] 성공할 때까지 경로를 바꿔가며 찌르는 시퀀스
-    endpoints = [
-        "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent",
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-    ]
+    # 404 에러를 방지하는 안정적인 v1 경로
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
     
-    last_error = ""
-    for url in endpoints:
-        try:
-            full_url = f"{url}?key={api_key}"
-            data = {
-                "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": mime_type, "data": file_content}}]}],
-                "generationConfig": {"temperature": st.session_state.temp_setting},
-                "safetySettings": [{"category": c, "threshold": "BLOCK_NONE"} for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]]
-            }
-            res = requests.post(full_url, json=data, timeout=60)
-            res_json = res.json()
-            
-            if res.status_code == 200 and 'candidates' in res_json:
-                raw_text = res_json['candidates'][0]['content']['parts'][0]['text']
-                json_match = re.search(r'\[\s*{.*}\s*\]', raw_text, re.DOTALL)
-                if json_match: return json.loads(json_match.group())
-            
-            last_error = str(res_json)
-        except Exception as e:
-            last_error = str(e)
-            continue # 다음 엔드포인트로 시도
-            
-    st.session_state.debug_log = last_error
-    return []
+    try:
+        data = {
+            "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": mime_type, "data": file_content}}]}],
+            "generationConfig": {"temperature": st.session_state.temp_setting},
+            "safetySettings": [{"category": c, "threshold": "BLOCK_NONE"} for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]]
+        }
+        res = requests.post(url, json=data, timeout=60)
+        res_json = res.json()
+        
+        if 'candidates' in res_json:
+            raw_text = res_json['candidates'][0]['content']['parts'][0]['text']
+            json_match = re.search(r'\[\s*{.*}\s*\]', raw_text, re.DOTALL)
+            if json_match: return json.loads(json_match.group())
+        
+        st.session_state.debug_log = str(res_json)
+        return []
+    except Exception as e:
+        st.session_state.debug_log = str(e)
+        return []
 
-# --- 4. 사이드바 (확정 디자인 유지) ---
+# --- 4. 사이드바 (후보자 이름, 레벨 가이드, 초기화, 비노출 설정 유지) ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
+    
+    # 1. 후보자 이름 입력
     candidate_name = st.text_input("👤 후보자 이름", placeholder="이름을 입력하세요")
+    
+    # 2. 레벨 선택 (전체 리스트 복구됨)
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()))
     st.info(f"💡 {LEVEL_GUIDELINES[selected_level]}")
     
+    st.subheader("2. JD (채용공고)")
     tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
     with tab1:
         url_input = st.text_input("URL 입력")
@@ -113,29 +131,35 @@ with st.sidebar:
         jd_text_area = st.text_area("내용 붙여넣기", height=150)
     jd_final = jd_text_area if jd_text_area else jd_fetched
 
+    st.subheader("3. 이력서")
     resume_file = st.file_uploader("PDF 또는 이미지 업로드", type=["pdf", "png", "jpg", "jpeg"])
+    
     st.divider()
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
         if resume_file and jd_final:
-            with st.spinner("최종 엔진이 질문을 생성하고 있습니다..."):
+            with st.spinner("3T 질문 리스트를 완벽하게 설계 중..."):
                 for cat in ["Transform", "Tomorrow", "Together"]:
                     st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
             st.rerun()
-        else: st.warning("이력서와 JD를 확인해주세요.")
+        else: st.warning("정보를 모두 입력해 주세요.")
 
     st.divider()
+    # 4. 초기화 버튼 (빨간색 유지)
     st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
     if st.button("🗑️ 초기화", use_container_width=True):
         for key in list(st.session_state.keys()): del st.session_state[key]
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
-    with st.expander("⚙️"):
+    
+    # 5. 비노출형 설정
+    with st.expander("⚙️", expanded=False):
         st.session_state.temp_setting = st.slider("Temp", 0.0, 1.0, st.session_state.temp_setting)
-        if st.session_state.debug_log: st.code(st.session_state.debug_log[:300])
+        if st.session_state.debug_log: st.code(st.session_state.debug_log[:200])
 
-# --- 5. 메인 화면 (3가지 뷰 모드) ---
+# --- 5. 메인 화면 (3가지 뷰 모드 및 수직 정렬 유지) ---
 st.title("✈️ Bar Raiser Copilot")
 
+# 버튼 명칭 선생님 요청안 100% 반영
 c_v1, c_v2, c_v3 = st.columns(3)
 if c_v1.button("↔️ 질문 리스트만 보기", use_container_width=True): st.session_state.view_mode = "QuestionWide"; st.rerun()
 if c_v2.button("⬅️ 기본 보기 (반반)", use_container_width=True): st.session_state.view_mode = "Standard"; st.rerun()
@@ -143,29 +167,31 @@ if c_v3.button("↔️ 면접관 노트만 보기", use_container_width=True): s
 
 st.divider()
 
-
-
 def render_questions():
     st.subheader("🎯 제안 질문 리스트")
     if not any(st.session_state.ai_questions.values()):
-        st.info("사이드바 정보를 채운 후 [질문 생성 시작]을 눌러주세요.")
+        st.info("사이드바 정보를 채운 후 [질문 생성 시작] 버튼을 눌러주세요.")
         return
 
     for cat in ["Transform", "Tomorrow", "Together"]:
         with st.expander(f"📌 {cat}({BAR_RAISER_CRITERIA[cat]}) 리스트", expanded=True):
+            # 수직 중앙 정렬 버튼 (🔄)
             c1, c2 = st.columns([0.94, 0.06])
             with c2:
                 st.markdown('<div class="v-center">', unsafe_allow_html=True)
                 if st.button("🔄", key=f"ref_{cat}"):
-                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
-                    st.rerun()
+                    if resume_file and jd_final:
+                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
+                        st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
             st.divider()
+            
             for i, q in enumerate(st.session_state.ai_questions.get(cat, [])):
                 q_val, i_val = q.get('q','질문 생성 실패'), q.get('i','오류 발생')
                 qc, ac = st.columns([0.94, 0.06])
                 with qc:
                     st.markdown(f"<div class='q-block'><div class='q-text'>Q. {q_val}</div><div style='color:gray; font-size:0.85rem;'>🎯 의도: {i_val}</div></div>", unsafe_allow_html=True)
+                # 수직 중앙 정렬 버튼 (➕)
                 with ac:
                     st.markdown('<div class="v-center">', unsafe_allow_html=True)
                     if st.button("➕", key=f"add_{cat}_{i}"):
@@ -181,6 +207,7 @@ def render_notes():
     
     st.divider()
     for idx, item in enumerate(st.session_state.selected_questions):
+        # 수직 중앙 정렬 버튼 (✕)
         t_col, d_col = st.columns([0.94, 0.06])
         with t_col:
             st.markdown(f"<span style='font-size:0.8rem; color:gray;'>Q{idx+1}</span> <span style='background-color:#f0f2f6; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>{item.get('cat','Custom')}</span>", unsafe_allow_html=True)
@@ -202,6 +229,7 @@ def render_notes():
             txt_out += f"\n[{s.get('cat','Custom')}] Q: {s.get('q','')}\nA: {s.get('memo','')}\n"
         st.download_button("💾 면접 결과 저장 (.txt)", txt_out, f"Result_{candidate_name}.txt", type="primary", use_container_width=True)
 
+# 레이아웃 실행 (3단 뷰 모드 반영)
 if st.session_state.view_mode == "QuestionWide": render_questions()
 elif st.session_state.view_mode == "NoteWide": render_notes()
 else:
