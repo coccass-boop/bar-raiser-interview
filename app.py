@@ -5,6 +5,7 @@ import base64
 from bs4 import BeautifulSoup
 import datetime
 import pandas as pd
+import PyPDF2
 
 # --- 1. 페이지 설정 ---
 st.set_page_config(
@@ -17,11 +18,11 @@ st.set_page_config(
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
 except:
-    st.error("🚨 API 키가 설정되지 않았습니다.")
+    st.error("🚨 API 키가 설정되지 않았습니다. [Settings > Secrets]를 확인해주세요.")
     st.stop()
 
 # ==============================================================================
-# [공식 문서 기준] 3T & 9VALUE 정의 (이미지 기반 100% 반영)
+# [공식 문서 기준] 3T & 9VALUE 정의 (보내주신 이미지 완벽 반영)
 # ==============================================================================
 VALUE_SYSTEM = {
     "Transform": [
@@ -42,7 +43,7 @@ VALUE_SYSTEM = {
 }
 
 # ==============================================================================
-# [공식 문서 기준] 직무 레벨별 공통 기대수준 정의 (Role Persona 반영)
+# [공식 문서 기준] 직무 레벨별 공통 기대수준 정의 (Role Persona 이미지 반영)
 # ==============================================================================
 LEVEL_GUIDELINES = {
     # === IC Track (전문가) ===
@@ -62,109 +63,35 @@ LEVEL_GUIDELINES = {
 
 def call_gemini_vision(prompt, pdf_file):
     """
-    이미지/PDF를 직접 인식하는 멀티모달 함수 (PyPDF2 안 씀)
+    [핵심] 이미지/PDF를 직접 인식하는 멀티모달 함수
     """
-    # 1. PDF 파일을 Base64로 인코딩 (AI가 볼 수 있게 변환)
-    pdf_bytes = pdf_file.getvalue()
-    pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
-    
-    # 2. 모델 설정 (Vision 기능이 있는 2.0/1.5 Flash 사용)
-    models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
-    headers = {'Content-Type': 'application/json'}
-    
-    # 3. 데이터 패키징 (텍스트 프롬프트 + PDF 파일)
-    data = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},  # 우리의 명령 (3T, 9Value, 레벨 정의 등)
-                {
-                    "inline_data": {
-                        "mime_type": "application/pdf",
-                        "data": pdf_base64
-                    }
-                }
-            ]
-        }]
-    }
-    
-    # 4. 전송
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}"
-        try:
-            response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
-            if response.status_code == 200:
-                return response.json()['candidates'][0]['content']['parts'][0]['text']
-        except: continue
-        
-    return "서버 연결 실패. (파일이 너무 크거나, 잠시 후 다시 시도해주세요)"
-
-def fetch_jd(url):
     try:
-        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            return soup.get_text(separator='\n', strip=True)
-        return None
-    except: return None
-
-# --- 4. UI 구성 및 로직 ---
-
-with st.sidebar:
-    st.title("✈️ Copilot Menu")
-    
-    st.subheader("1. 타겟 레벨 (Target)")
-    selected_level = st.selectbox("레벨 선택", list(LEVEL_GUIDELINES.keys()))
-    
-    st.info(f"💡 **Role Persona:**\n{LEVEL_GUIDELINES[selected_level]}")
-    
-    track_info = "Manager Track (리더십)" if "M-" in selected_level else "IC Track (전문가)"
-    
-    st.subheader("2. JD (채용공고)")
-    tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
-    jd_content = ""
-    with tab1:
-        url = st.text_input("URL 입력")
-        if url and fetch_jd(url): jd_content = fetch_jd(url)
-    with tab2:
-        paste = st.text_area("내용 붙여넣기", height=100)
-        if paste: jd_content = paste
-
-    st.subheader("3. 이력서")
-    resume_file = st.file_uploader("PDF 업로드 (이미지/스캔본 OK)", type="pdf")
-    
-    st.divider()
-    btn = st.button("질문 리스트 생성 🚀", type="primary", use_container_width=True)
-
-    # 관리자 메뉴 (숨김)
-    st.markdown("---")
-    with st.expander("ℹ️ System Version 3.1 (Vision Core)"): 
-        st.caption("Admin Access Only")
-        admin_pw = st.text_input("Access Key", type="password", key="admin_access")
-        mode = "Admin" if admin_pw == "admin1234" else "User"
-
-# ... 관리자 모드 ...
-if mode == "Admin":
-    st.title("📊 Bar Raiser Insight Dashboard")
-    st.markdown("---")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("누적 생성 건수", "156건", "+14")
-    c2.metric("이미지 인식 성공률", "99.8%", "Vision On")
-    c3.metric("최다 검증 가치", "Active Learning", "31%")
-    
-    st.subheader("📈 9Value별 질문 생성 비율")
-    chart_data = pd.DataFrame({
-        'Value': ['Customer-First', 'Enduring Value', 'Excellence', 'Active Learning', 'Forward Thinking', 'Speed w/ Impact', 'Power of Three', 'Trust & Growth', 'Global Perspective'],
-        'Count': [15, 28, 10, 12, 20, 25, 18, 22, 10]
-    })
-    st.bar_chart(chart_data.set_index('Value'))
-
-else:
-    st.title("✈️ Bar Raiser Copilot")
-    st.markdown(f"> **면접관님의 든든한 파트너** | **Vision AI**가 이력서를 정밀 분석합니다.")
-    st.divider()
-    
-    with st.expander("💡 우리 회사의 3T & 9VALUE 정의 보기 (Official)"):
-        c1, c2, c3 = st.columns(3)
-        with c1: 
-            st.markdown("### **Transform**")
-            for v in VALUE_SYSTEM["Transform"]: st.caption(
+        # 1. PDF 파일을 Base64로 인코딩 (AI가 볼 수 있게 변환)
+        pdf_bytes = pdf_file.getvalue()
+        pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+        
+        # 2. 모델 설정 (Vision 기능이 있는 2.0 모델 우선 사용)
+        models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
+        headers = {'Content-Type': 'application/json'}
+        
+        # 3. 데이터 패키징 (텍스트 프롬프트 + PDF 파일)
+        data = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt},  # 우리의 명령 (3T, 9Value, 레벨 정의 등)
+                    {
+                        "inline_data": {
+                            "mime_type": "application/pdf",
+                            "data": pdf_base64
+                        }
+                    }
+                ]
+            }]
+        }
+        
+        # 4. 전송 (순차 시도)
+        last_error = ""
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}"
+            try:
+                response = requests.post(url, headers=headers,
