@@ -15,18 +15,11 @@ except:
     st.error("🚨 API 키를 설정해주세요.")
     st.stop()
 
-# --- 3. 데이터 및 세션 초기화 ---
+# --- 3. 세션 상태 초기화 ---
 if "ai_questions" not in st.session_state:
     st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
 if "selected_questions" not in st.session_state:
-    st.session_state.selected_questions = []
-
-# (프롬프트용 데이터 - 기존 유지)
-VALUE_SYSTEM_PROMPT = {
-    "Transform": ["1. Customer-First Innovation", "2. Enduring Value Creation", "3. Excellence in Execution"],
-    "Tomorrow": ["4. Active Learning", "5. Forward Thinking", "6. Speed with Impact"],
-    "Together": ["7. Power of Three", "8. Trust & Growth", "9. Global Perspective"]
-}
+    st.session_state.selected_questions = [] # [{"q": "질문", "cat": "카테고리", "memo": ""}]
 
 LEVEL_GUIDELINES = {
     "IC-L3": "[기본기 실무자] 가이드 하 업무 수행, 기초 지식 학습.",
@@ -39,7 +32,7 @@ LEVEL_GUIDELINES = {
     "M-L7": "[디렉터] 전략 방향 및 조직 시너시 총괄."
 }
 
-# --- 4. 핵심 기능 함수 ---
+# --- 4. 함수 정의 ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -50,7 +43,7 @@ def fetch_jd(url):
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
     prompt = f"""
-    [Role] Bar Raiser Interviewer. Framework: 3T & 9Value.
+    [Role] Bar Raiser Interviewer. Framework: Trinity Values.
     [Target] {level}. [Category] {category}.
     [JD] {jd_text[:3000]}
     [Task] Create 10 unique questions in Korean for '{category}'. 
@@ -65,7 +58,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
         return json.loads(cleaned)
     except: return []
 
-# --- 5. 사이드바 디자인 ---
+# --- 5. 사이드바 ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     selected_level = st.selectbox("레벨 선택", list(LEVEL_GUIDELINES.keys()))
@@ -73,110 +66,111 @@ with st.sidebar:
     
     st.subheader("2. JD (채용공고)")
     tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
-    
     with tab1:
         url_input = st.text_input("URL 입력")
         jd_from_url = fetch_jd(url_input) if url_input else ""
     with tab2:
         jd_from_text = st.text_area("내용 붙여넣기", height=150)
-
     jd_final_content = jd_from_text if jd_from_text else jd_from_url
 
     st.subheader("3. 이력서")
     resume_file = st.file_uploader("PDF 업로드", type="pdf")
     
     st.divider()
-    main_btn = st.button("전체 질문 생성 시작 🚀", type="primary", use_container_width=True)
+    main_btn = st.button("질문 생성 시작 🚀", type="primary", use_container_width=True)
 
-# --- 6. 메인 화면 UI ---
+# --- 6. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
 
-# [디자인 적용] Trinity Values 카드형 레이아웃
-st.markdown("<h2 style='text-align: center; margin-bottom: 30px;'>Trinity Values</h2>", unsafe_allow_html=True)
-
-# Card 1: Transform
-with st.container(border=True):
-    st.markdown("### **We TRANSFORM through :**")
-    st.markdown("""
-    - 💡 **Customer-First Innovation** | 모든 결정은 고객에게 미치는 영향을 가장 먼저 고려해 이뤄집니다.
-    - 📈 **Enduring Value Creation** | 시간이 지날수록 더 큰 가치를 만들어내는 솔루션을 구축합니다.
-    - 🎯 **Excellence in Execution** | 디지털 전환의 새로운 기준을 세웁니다.
-    """, unsafe_allow_html=True)
-
-# Card 2: Tomorrow
-with st.container(border=True):
-    st.markdown("### **We shape TOMORROW by :**")
-    st.markdown("""
-    - 🌱 **Active Learning** | 고객 접점에서 발생하는 모든 경험을 공동의 지식으로 전환합니다.
-    - 🚀 **Forward Thinking** | 미래를 고려해 확장성과 지속성을 갖춘 솔루션을 구축합니다.
-    - ⚡ **Speed with Impact** | 성과는 빠르게 달성하면서도 장기적인 가치를 쌓아갑니다.
-    """, unsafe_allow_html=True)
-
-# Card 3: Together
-with st.container(border=True):
-    st.markdown("### **We succeed TOGETHER through :**")
-    st.markdown("""
-    - 🤝 **Power of Three** | 고객, 파트너, 그리고 우리 팀이 하나로 연결됩니다.
-    - 💗 **Trust & Growth** | 서로의 발전을 지원하며 함께 성장합니다.
-    - 🌐 **Global Perspective** | 문화와 시장을 연결하는 가교 역할을 합니다.
-    """, unsafe_allow_html=True)
+# Trinity Values 접이식 바
+with st.expander("💎 Trinity Values (클릭하여 기준 확인)", expanded=False):
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("#### **Transform**")
+        st.caption("💡 Customer-First Innovation / 📈 Enduring Value Creation / 🎯 Excellence in Execution")
+    with c2:
+        st.markdown("#### **Tomorrow**")
+        st.caption("🌱 Active Learning / 🚀 Forward Thinking / ⚡ Speed with Impact")
+    with c3:
+        st.markdown("#### **Together**")
+        st.caption("🤝 Power of Three / 💗 Trust & Growth / 🌐 Global Perspective")
 
 st.divider()
 
 if main_btn:
     if resume_file and jd_final_content:
-        with st.spinner("이력서와 JD를 정밀 분석 중입니다..."):
+        with st.spinner("질문 생성 중..."):
             for cat in ["Transform", "Tomorrow", "Together"]:
                 st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final_content)
-    else:
-        if not resume_file: st.error("이력서 PDF를 업로드해주세요.")
-        if not jd_final_content: st.error("JD URL을 입력하거나 내용을 붙여넣어주세요.")
+    else: st.error("이력서와 JD를 모두 확인해주세요.")
 
-col_q, col_n = st.columns([1.2, 1])
+col_q, col_n = st.columns([1.1, 1])
 
-# [왼쪽] 질문 리스트
 with col_q:
     st.subheader("🤖 제안 질문 리스트")
     for cat in ["Transform", "Tomorrow", "Together"]:
         with st.expander(f"📌 {cat} 리스트", expanded=True):
-            head_col, btn_col = st.columns([0.8, 0.2])
-            head_col.markdown(f"**{cat} Candidates**")
-            if btn_col.button("🔄", key=f"ref_{cat}"):
+            h_col, b_col = st.columns([0.88, 0.12])
+            h_col.write(f"**{cat} Candidates**")
+            if b_col.button("🔄", key=f"ref_{cat}"):
                 if resume_file and jd_final_content:
-                    with st.spinner(f"{cat} 갱신 중..."):
-                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final_content)
+                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final_content)
                     st.rerun()
-            
             st.divider()
             for i, q in enumerate(st.session_state.ai_questions[cat]):
-                q_col, add_col = st.columns([0.88, 0.12])
-                q_col.write(f"**Q. {q['q']}**")
-                if add_col.button("➕", key=f"add_{cat}_{i}"):
+                qc, ac = st.columns([0.9, 0.1])
+                qc.write(f"**Q. {q['q']}**")
+                if ac.button("➕", key=f"add_{cat}_{i}"):
                     if q['q'] not in [sq['q'] for sq in st.session_state.selected_questions]:
-                        st.session_state.selected_questions.append({"q": q['q'], "memo": ""})
+                        st.session_state.selected_questions.append({"q": q['q'], "cat": cat, "memo": ""})
                 st.caption(f"🎯 의도: {q['i']}")
                 st.divider()
 
-# [오른쪽] 면접관 실시간 노트
+# --- [오른쪽: 면접관 실시간 노트 업데이트] ---
 with col_n:
-    with st.expander("📝 면접관 실시간 노트 (기록창)", expanded=True):
-        if st.button("➕ 직접 준비한 질문 추가", use_container_width=True):
-            st.session_state.selected_questions.append({"q": "직접 입력한 질문입니다.", "memo": ""})
+    with st.expander("📝 면접관 실시간 노트", expanded=True):
+        if st.button("➕ 개별 질문 추가", use_container_width=True):
+            st.session_state.selected_questions.append({"q": "", "cat": "Custom", "memo": ""})
         
         st.divider()
+        
+        if not st.session_state.selected_questions:
+            st.write("질문을 추가하면 여기에 나타납니다.")
+        
         for idx, item in enumerate(st.session_state.selected_questions):
-            h_col, d_col = st.columns([0.9, 0.1])
-            h_col.markdown(f"**Question {idx+1}**")
-            if d_col.button("❌", key=f"del_{idx}"):
+            # 헤더 영역 (번호 + 카테고리 태그 + 작은 삭제 버튼)
+            tag_col, del_col = st.columns([0.92, 0.08])
+            with tag_col:
+                st.markdown(f"<span style='font-size:0.8rem; color:gray;'>Q{idx+1}</span> <span style='background-color:#f0f2f6; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>{item['cat']}</span>", unsafe_allow_html=True)
+            
+            if del_col.button("✕", key=f"del_{idx}", help="삭제"):
                 st.session_state.selected_questions.pop(idx)
                 st.rerun()
             
-            st.session_state.selected_questions[idx]['q'] = st.text_input(f"질문_{idx}", value=item['q'], label_visibility="collapsed", key=f"input_q_{idx}")
-            st.session_state.selected_questions[idx]['memo'] = st.text_area(f"메모_{idx}", value=item['memo'], placeholder="메모...", height=100, label_visibility="collapsed", key=f"input_m_{idx}")
-            st.divider()
-        
+            # 질문 영역 (줄바꿈 가능하도록 text_area 사용, 높이 자동 조절 느낌으로)
+            q_placeholder = "질문을 직접 입력하세요." if item['cat'] == "Custom" else ""
+            st.session_state.selected_questions[idx]['q'] = st.text_area(
+                f"q_input_{idx}", 
+                value=item['q'], 
+                placeholder=q_placeholder,
+                label_visibility="collapsed", 
+                height=68, # 2~3줄 정도 보이게 설정
+                key=f"area_q_{idx}"
+            )
+            
+            # 답변 영역
+            st.session_state.selected_questions[idx]['memo'] = st.text_area(
+                f"m_input_{idx}", 
+                value=item['memo'], 
+                placeholder="답변 메모...", 
+                height=100, 
+                label_visibility="collapsed", 
+                key=f"area_m_{idx}"
+            )
+            st.markdown("<div style='margin-bottom:20px;'></div>", unsafe_allow_html=True)
+
         if st.session_state.selected_questions:
-            output_content = f"Target Level: {selected_level}\n" + "="*30 + "\n"
-            for sq in st.session_state.selected_questions:
-                output_content += f"\n[Q] {sq['q']}\n[A] {sq['memo']}\n"
-            st.download_button("💾 결과 다운로드 (.txt)", output_content, f"Interview_{selected_level}.txt", type="primary", use_container_width=True)
+            out_data = f"Target: {selected_level}\nDate: {datetime.datetime.now()}\n"
+            for s in st.session_state.selected_questions:
+                out_data += f"\n[{s['cat']}] Q: {s['q']}\nA: {s['memo']}\n"
+            st.download_button("💾 결과 저장 (.txt)", out_data, f"Interview_{selected_level}.txt", type="primary", use_container_width=True)
