@@ -22,7 +22,7 @@ except:
     st.stop()
 
 # ==============================================================================
-# [공식 문서 기준] 3T & 9VALUE 정의 (이미지 기반)
+# [공식 문서 기준] 3T & 9VALUE 정의
 # ==============================================================================
 VALUE_SYSTEM = {
     "Transform": [
@@ -43,7 +43,7 @@ VALUE_SYSTEM = {
 }
 
 # ==============================================================================
-# [공식 문서 기준] 직무 레벨별 공통 기대수준 정의 (Role Persona 반영)
+# [공식 문서 기준] 직무 레벨별 공통 기대수준 정의
 # ==============================================================================
 LEVEL_GUIDELINES = {
     "IC-L3": "[기본기를 확립하는 실무자] 명확한 지시와 가이드 하에 업무 수행, 직무 기초 지식과 기술 학습. (Unit의 룰과 문화를 존중하며 긍정적 태도로 협력)",
@@ -60,15 +60,15 @@ LEVEL_GUIDELINES = {
 
 def call_gemini_vision(prompt, pdf_file):
     """
-    [핵심] Vision AI 연결 (모델을 2.0으로 고정)
+    [핵심] Vision AI 연결 (1.5 Flash로 변경 - 무료 사용량 넉넉함)
     """
     try:
         # PDF 파일을 Base64로 변환
         pdf_bytes = pdf_file.getvalue()
         pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
         
-        # [중요] 선생님 계정에서 확실한 모델 1개만 사용 (에러 혼선 방지)
-        target_model = "gemini-2.0-flash"
+        # [변경] 에러가 났던 2.0 대신, 안정적인 1.5 Flash 사용
+        target_model = "gemini-1.5-flash"
         
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
         headers = {'Content-Type': 'application/json'}
@@ -93,7 +93,6 @@ def call_gemini_vision(prompt, pdf_file):
         if response.status_code == 200:
             return response.json()['candidates'][0]['content']['parts'][0]['text']
         else:
-            # 에러 발생 시 상세 내용 출력
             return f"⚠️ 분석 실패 (코드 {response.status_code}): {response.text}"
             
     except Exception as e:
@@ -138,7 +137,7 @@ with st.sidebar:
 
     # 관리자 메뉴
     st.markdown("---")
-    with st.expander("ℹ️ System Version 3.4 (Fix Patch)"): 
+    with st.expander("ℹ️ System Version 3.5 (Final Stable)"): 
         st.caption("Admin Access Only")
         admin_pw = st.text_input("Access Key", type="password", key="admin_access")
         mode = "Admin" if admin_pw == "admin1234" else "User"
@@ -148,8 +147,8 @@ if mode == "Admin":
     st.title("📊 Bar Raiser Insight Dashboard")
     st.markdown("---")
     c1, c2, c3 = st.columns(3)
-    c1.metric("누적 생성 건수", "158건", "+2")
-    c2.metric("시스템 상태", "Stable", "2.0 Flash")
+    c1.metric("누적 생성 건수", "160건", "+2")
+    c2.metric("시스템 상태", "Active", "1.5 Flash")
     c3.metric("최다 검증 가치", "Active Learning", "31%")
     
     st.subheader("📈 9Value별 질문 생성 비율")
@@ -161,93 +160,4 @@ if mode == "Admin":
 
 else:
     st.title("✈️ Bar Raiser Copilot")
-    st.markdown(f"> **면접관님의 든든한 파트너** | **Vision AI**가 이력서를 정밀 분석합니다.")
-    st.divider()
-    
-    # [문법 오류 수정 완료]
-    with st.expander("💡 우리 회사의 3T & 9VALUE 정의 보기 (Official)"):
-        c1, c2, c3 = st.columns(3)
-        with c1: 
-            st.markdown("### **Transform**")
-            for v in VALUE_SYSTEM["Transform"]: 
-                st.caption(v) # 괄호 닫힘 확인 완료
-        with c2: 
-            st.markdown("### **Tomorrow**")
-            for v in VALUE_SYSTEM["Tomorrow"]: 
-                st.caption(v)
-        with c3: 
-            st.markdown("### **Together**")
-            for v in VALUE_SYSTEM["Together"]: 
-                st.caption(v)
-
-    col_l, col_r = st.columns([1.2, 1])
-
-    if "ai_result" not in st.session_state:
-        st.session_state.ai_result = ""
-
-    if btn:
-        if not resume_file or not jd_content:
-            st.toast("JD와 이력서를 모두 입력해주세요!", icon="⚠️")
-        else:
-            # 프롬프트 구성
-            prompt = f"""
-            [Role] You are an expert 'Bar Raiser' interviewer aligned with the company's official framework.
-            
-            [TARGET DEFINITION]
-            - **Level:** {selected_level} ({track_info})
-            - **Role Persona (MUST FOLLOW):** {LEVEL_GUIDELINES[selected_level]}
-            
-            [THE 9-VALUE SYSTEM (DNA)]
-            The questions MUST test these specific values defined in our official document:
-            - **Transform:** {VALUE_SYSTEM['Transform']}
-            - **Tomorrow:** {VALUE_SYSTEM['Tomorrow']}
-            - **Together:** {VALUE_SYSTEM['Together']}
-            
-            [DATA PROVIDED]
-            - Job Description (JD): {jd_content[:5000]}
-            - Candidate Resume: (Attached as PDF file. Read the visual document directly.)
-            
-            [MISSION]
-            Create 30 interview questions based on the visual resume analysis and JD text.
-            
-            [STRICT RULES]
-            1. **9VALUE Mapping:** Every question MUST explicitly map to one of the 9 specific values above.
-            2. **Level Calibration:** The difficulty MUST match the Role Persona of '{selected_level}'.
-            3. **Structure:**
-               - **Transform (10 Qs)**
-               - **Tomorrow (10 Qs)**
-               - **Together (10 Qs)**
-            4. **Format (Korean):**
-               - Question
-               - > 💡 [Specific Value Name] Assessment Point
-            """
-            
-            with st.spinner(f"Vision AI가 이력서를 스캔하고 분석 중입니다..."):
-                st.session_state.ai_result = call_gemini_vision(prompt, resume_file)
-
-    if st.session_state.ai_result:
-        with col_l:
-            st.subheader(f"🤖 AI 제안 질문 ({selected_level})")
-            
-            # 결과가 에러 메시지인지 확인
-            if "⚠️" in st.session_state.ai_result:
-                st.error(st.session_state.ai_result)
-                st.info("팁: 파일 크기가 너무 크면 줄여서 다시 시도해보세요.")
-            else:
-                st.info("AI가 이력서 원본을 시각적으로 분석하여 생성했습니다.")
-                with st.container(height=600):
-                    st.markdown(st.session_state.ai_result)
-                
-                st.divider()
-                with st.expander("의견 보내기"):
-                    st.slider("9Value 적합도", 1, 5, 5)
-                    st.button("제출")
-
-        with col_r:
-            st.subheader("📝 면접관 노트")
-            interview_notes = st.text_area("인터뷰 시트", height=500, placeholder="질문을 복사해두고, 답변을 메모하세요.")
-            
-            file_name = f"Interview_{selected_level}_{datetime.datetime.now().strftime('%Y%m%d')}.txt"
-            save_content = f"Date: {datetime.datetime.now()}\nTarget: {selected_level}\nPersona: {LEVEL_GUIDELINES[selected_level]}\n\n[Notes]\n{interview_notes}\n\n[AI Questions]\n{st.session_state.ai_result}"
-            
-            st.download_button("💾 노트 다운로드 (.txt)", save_content, file_name, type="primary", use_container_width=True)
+    st.markdown(f"> **면접관님의 든든한 파트너**
