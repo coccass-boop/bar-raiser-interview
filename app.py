@@ -11,91 +11,90 @@ try:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
 except:
-    st.error("🚨 API 키 오류! [Manage app] > [Settings] > [Secrets]를 확인해주세요.")
+    st.error("🚨 API 키 오류! 앱을 새로 만들고 [Settings] > [Secrets]에 키를 꼭 다시 넣어주세요.")
     st.stop()
 
 # --- 3. 함수 정의 ---
 def fetch_jd(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
             return soup.get_text(separator='\n', strip=True)
         return None
-    except:
-        return None
+    except: return None
 
 def get_ai_response(level, track, jd_text, resume_file):
-    # [최종 수정] 무료 사용량이 가장 넉넉하고 안정적인 1.5 Flash로 복귀
-    # (라이브러리가 업데이트되었으므로 이제 에러 없이 작동합니다!)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # [무적 로직] 사용 가능한 모델을 순서대로 다 시도해봅니다.
+    # 1순위: 1.5 Flash (빠르고 무료)
+    # 2순위: 1.5 Flash Latest (최신 버전 별칭)
+    # 3순위: 1.5 Pro (성능 좋음)
+    # 4순위: Pro (구버전, 가장 안전)
+    candidate_models = [
+        'gemini-1.5-flash',
+        'gemini-1.5-flash-latest',
+        'gemini-1.5-pro',
+        'gemini-pro'
+    ]
     
     prompt = f"""
     당신은 '바레이저(Bar Raiser)' 면접관입니다.
-    제공된 [이력서]와 [JD]를 분석하여 심층 면접 질문 20개를 생성하세요.
+    [이력서 파일]과 [JD]를 분석하여 질문 20개를 생성하세요.
     
-    [정보]
-    - 레벨: {level} ({track})
-    - JD 내용: {jd_text[:10000]}
+    - 타겟: {level} ({track})
+    - JD: {jd_text[:10000]}
     
     [규칙]
-    1. JD의 핵심 요구사항과 이력서의 경험을 반드시 연결할 것.
+    1. JD 요구사항과 이력서 경험을 연결할 것.
     2. 레벨 {level}에 맞는 난이도로 질문할 것.
-    3. 3T(Transform, Together, Tomorrow) 가치로 분류할 것.
-    4. 각 질문에 '> 💡 평가 가이드'를 포함할 것.
+    3. Markdown 형식, 3T 분류, 평가 가이드 포함.
     """
     
-    # PDF 파일 처리
-    resume_data = {
-        "mime_type": "application/pdf",
-        "data": resume_file.getvalue()
-    }
+    resume_data = {"mime_type": "application/pdf", "data": resume_file.getvalue()}
     
-    try:
-        # 안전장치: 에러 발생 시 내용을 보여줌
-        response = model.generate_content([prompt, resume_data])
-        return response.text
-    except Exception as e:
-        return f"⚠️ 에러 발생: {str(e)}\n(잠시 후 다시 시도해주세요.)"
+    # 모델 돌려막기 시도
+    last_error = ""
+    for model_name in candidate_models:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content([prompt, resume_data])
+            return f"✅ **[{model_name}] 모델로 생성되었습니다.**\n\n" + response.text
+        except Exception as e:
+            # 실패하면 다음 모델로 넘어감
+            last_error = str(e)
+            continue
+            
+    # 모든 모델이 실패했을 때만 에러 출력
+    return f"죄송합니다. 모든 모델 접속에 실패했습니다.\n마지막 에러: {last_error}"
 
-# --- 4. 화면 구성 ---
-st.title("🧐 바레이저 면접 질문 생성기")
-st.caption("✅ 무료 사용량이 넉넉한 Gemini 1.5 Flash 모델로 구동됩니다.")
+# --- 4. UI 구성 ---
+st.title("🧐 바레이저 면접 질문 생성기 (Final)")
+st.caption("🚀 되는 모델을 자동으로 찾아 실행합니다.")
 
 with st.sidebar:
-    st.header("1. 입력 정보")
-    track = st.radio("트랙", ["IC Track (전문가)", "Mg Track (매니저)"], horizontal=True)
+    st.header("입력 정보")
+    track = st.radio("트랙", ["IC Track", "Mg Track"], horizontal=True)
     level = st.selectbox("레벨", ["L3", "L4", "L5", "L6", "L7", "M-L5", "M-L6", "M-L7"])
     
-    st.header("2. 채용 공고 (JD)")
-    tab1, tab2 = st.tabs(["🔗 URL 입력", "📝 직접 붙여넣기"])
+    tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
+    with tab1: jd_url = st.text_input("JD URL")
+    with tab2: jd_paste = st.text_area("JD 내용")
     
-    jd_content = ""
-    with tab1:
-        url = st.text_input("JD URL", placeholder="https://...")
-        if url:
-            fetched = fetch_jd(url)
-            if fetched:
-                st.success("URL 읽기 성공!")
-                jd_content = fetched
-            else:
-                st.warning("URL 읽기 실패. 옆 탭에 직접 붙여넣어주세요.")
-    with tab2:
-        paste = st.text_area("JD 내용 붙여넣기", height=200)
-        if paste: jd_content = paste
-
-    st.header("3. 이력서 (PDF)")
-    resume_file = st.file_uploader("PDF 업로드", type="pdf")
-    
-    btn = st.button("질문 생성하기 ✨", type="primary", use_container_width=True)
+    resume_file = st.file_uploader("이력서 PDF", type="pdf")
+    btn = st.button("질문 생성", type="primary")
 
 if btn:
-    if not jd_content:
-        st.warning("👈 JD 내용을 입력해주세요!")
-    elif not resume_file:
-        st.warning("👈 이력서를 업로드해주세요!")
+    if not resume_file:
+        st.warning("이력서를 넣어주세요!")
     else:
-        with st.spinner("AI가 분석 중입니다..."):
-            result = get_ai_response(level, track, jd_content, resume_file)
-            st.markdown(result)
+        jd_text = ""
+        if jd_url:
+            jd_text = fetch_jd(jd_url)
+            if not jd_text: st.warning("URL 읽기 실패! 텍스트로 넣어주세요.")
+        elif jd_paste:
+            jd_text = jd_paste
+            
+        if jd_text:
+            with st.spinner("최적의 모델을 찾아 질문을 생성 중입니다..."):
+                st.markdown(get_ai_response(level, track, jd_text, resume_file))
