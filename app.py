@@ -5,12 +5,12 @@ import base64
 import datetime
 from bs4 import BeautifulSoup
 
-# --- 1. 페이지 설정 및 디자인 CSS ---
+# --- 1. 페이지 설정 및 섬세한 UI 보정 CSS ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
     <style>
-    /* 아이콘 버튼(🔄, ➕, ✕)을 네모칸 정중앙에 배치 (픽셀 단위 조정) */
+    /* 아이콘 버튼(🔄, ➕, ✕) 중앙 정렬 및 크기 고정 */
     .stButton > button {
         display: flex !important;
         align-items: center !important;
@@ -18,22 +18,21 @@ st.markdown("""
         padding: 0px !important;
         height: 32px !important;
         width: 32px !important;
-        margin-top: 1px !important; /* 수직 균형을 맞추는 핵심 포인트 */
-        font-size: 16px !important;
+        margin-top: 2px !important; /* 수직 정렬 미세 보정 */
     }
-    /* 사이드바 메인 버튼 스타일 보존 */
+    /* 사이드바 메인 버튼 스타일 복구 (글자 깨짐 방지) */
     [data-testid="stSidebar"] .stButton > button {
         width: 100% !important;
         height: auto !important;
         margin-top: 0px !important;
         padding: 10px !important;
+        display: block !important;
     }
     /* 질문 텍스트 스타일 */
     .q-text {
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.5 !important;
-        margin-top: 5px !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -121,24 +120,25 @@ with st.sidebar:
 st.title("✈️ Bar Raiser Copilot")
 st.divider()
 
+# [레이아웃 깨짐 해결] Wide 모드 시 컬럼 비율을 조정하지 않고 전체 너비 컨테이너 사용
 if st.session_state.wide_mode:
-    col_q_area = st.container()
+    col_q_container = st.container()
     toggle_label = "🔙 면접관 노트 다시 열기"
 else:
     col_q, col_n = st.columns([1.1, 1])
     toggle_label = "↔️ 질문 리스트 넓게 보기 (노트 접기)"
 
-# [왼쪽] 제안 질문 리스트
-with (col_q if not st.session_state.wide_mode else col_q_area):
+# [왼쪽] 제안 질문 리스트 로직
+def render_questions():
     st.subheader("🎯 제안 질문 리스트")
     if st.button(toggle_label):
         st.session_state.wide_mode = not st.session_state.wide_mode
         st.rerun()
 
     for cat in ["Transform", "Tomorrow", "Together"]:
-        # [수정] 제목에 가치 포함 (📌 Transform(Create Enduring Value) 리스트)
+        # 제목에 가치 포함 및 설명 텍스트 제거
         with st.expander(f"📌 {cat}({BAR_RAISER_CRITERIA[cat]}) 리스트", expanded=True):
-            # [수정] 새로고침 버튼 수직 중앙 정렬
+            # 새로고침 버튼 중앙 정렬
             head_col, ref_col = st.columns([0.93, 0.07])
             with ref_col:
                 if st.button("🔄", key=f"ref_{cat}"):
@@ -148,7 +148,7 @@ with (col_q if not st.session_state.wide_mode else col_q_area):
             
             st.divider()
             for i, q in enumerate(st.session_state.ai_questions[cat]):
-                # [수정] ➕ 버튼 수직 중앙 정렬
+                # ➕ 버튼 중앙 정렬
                 qc, ac = st.columns([0.93, 0.07])
                 qc.markdown(f"<div class='q-text'>Q. {q['q']}</div>", unsafe_allow_html=True)
                 with ac:
@@ -158,8 +158,13 @@ with (col_q if not st.session_state.wide_mode else col_q_area):
                 st.caption(f"🎯 의도: {q['i']}")
                 st.divider()
 
-# [오른쪽] 면접관 노트
-if not st.session_state.wide_mode:
+# 모드에 따른 렌더링 실행
+if st.session_state.wide_mode:
+    with col_q_container:
+        render_questions()
+else:
+    with col_q:
+        render_questions()
     with col_n:
         st.subheader("📝 면접관 노트")
         if st.button("➕ 질문을 직접 입력하세요.", use_container_width=True):
@@ -167,8 +172,7 @@ if not st.session_state.wide_mode:
         
         st.divider()
         for idx, item in enumerate(st.session_state.selected_questions):
-            # [수정] ✕ 버튼 수직 중앙 정렬
-            tag_col, del_col = st.columns([0.94, 0.06])
+            tag_col, del_col = st.columns([0.93, 0.07])
             with tag_col:
                 st.markdown(f"<span style='font-size:0.8rem; color:gray;'>Q{idx+1}</span> <span style='background-color:#f0f2f6; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>{item.get('cat','Custom')}</span>", unsafe_allow_html=True)
             with del_col:
@@ -176,7 +180,6 @@ if not st.session_state.wide_mode:
                     st.session_state.selected_questions.pop(idx)
                     st.rerun()
             
-            # 질문 영역 (높이 가변)
             q_text = item['q']
             q_height = max(80, (len(q_text) // 35) * 25 + 35)
             st.session_state.selected_questions[idx]['q'] = st.text_area(f"q_{idx}", value=q_text, label_visibility="collapsed", height=q_height, key=f"area_q_{idx}")
