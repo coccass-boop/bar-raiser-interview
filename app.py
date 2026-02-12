@@ -11,15 +11,22 @@ st.set_page_config(page_title="바레이저 면접 질문 생성기", layout="wi
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
 except:
-    st.error("🚨 API 키가 없습니다! [Settings] > [Secrets]에 키를 넣어주세요.")
+    st.error("🚨 API 키가 없습니다! [Settings] > [Secrets]를 확인해주세요.")
     st.stop()
 
 # --- 3. 함수 정의 ---
 
-# [핵심] 라이브러리 없이 직접 통신하는 함수 (무적 코드)
 def call_gemini_direct(prompt):
-    # 1순위: 1.5 Flash (무료/빠름)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    # [핵심 수정] 선생님 로그에 있었던 '확실한 모델'들만 순서대로 시도합니다.
+    # 1. gemini-2.0-flash (최신)
+    # 2. gemini-flash-latest (1.5의 별칭)
+    # 3. gemini-2.0-flash-lite-preview-02-05 (가벼운 모델)
+    
+    models_to_try = [
+        "gemini-2.0-flash", 
+        "gemini-flash-latest",
+        "gemini-2.0-flash-lite-preview-02-05" 
+    ]
     
     headers = {'Content-Type': 'application/json'}
     data = {
@@ -28,23 +35,30 @@ def call_gemini_direct(prompt):
         }]
     }
     
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(data), timeout=30)
+    last_error = ""
+    
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}"
         
-        if response.status_code == 200:
-            return response.json()['candidates'][0]['content']['parts'][0]['text']
-        else:
-            # 실패하면 2순위: 1.5 Pro 시도
-            st.warning(f"Flash 모델 통신 실패({response.status_code}), Pro 모델로 재시도합니다...")
-            url_pro = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={API_KEY}"
-            response_pro = requests.post(url_pro, headers=headers, data=json.dumps(data), timeout=30)
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(data), timeout=30)
             
-            if response_pro.status_code == 200:
-                return response_pro.json()['candidates'][0]['content']['parts'][0]['text']
+            # 성공(200)하면 바로 결과 반환하고 끝냄
+            if response.status_code == 200:
+                return f"✅ **[{model_name}] 모델로 성공했습니다!**\n\n" + response.json()['candidates'][0]['content']['parts'][0]['text']
+            
+            # 실패하면 다음 모델 시도
             else:
-                return f"에러 발생: {response_pro.text}"
-    except Exception as e:
-        return f"통신 에러: {str(e)}"
+                error_msg = response.text
+                last_error = f"[{model_name}] 실패: {error_msg}"
+                continue
+                
+        except Exception as e:
+            last_error = str(e)
+            continue
+            
+    # 다 해봤는데 안 되면
+    return f"❌ 모든 모델 시도 실패.\n마지막 에러: {last_error}\n(잠시 후 다시 시도해주세요)"
 
 def extract_text_from_pdf(file):
     try:
@@ -66,8 +80,8 @@ def fetch_jd(url):
     except: return None
 
 # --- 4. UI 구성 ---
-st.title("🧐 바레이저 면접 질문 생성기 (Direct)")
-st.caption("✅ 라이브러리 없이 직접 연결됩니다. 무조건 됩니다.")
+st.title("🧐 바레이저 면접 질문 생성기 (2.0)")
+st.caption("✅ 선생님 계정에서 사용 가능한 Gemini 2.0 모델을 강제로 연결합니다.")
 
 with st.sidebar:
     st.header("입력 정보")
@@ -85,39 +99,36 @@ if btn:
     if not resume_file:
         st.warning("이력서를 넣어주세요!")
     else:
-        # 1. 정보 취합
         resume_text = extract_text_from_pdf(resume_file)
         if not resume_text:
-            st.error("❌ PDF에서 글자를 읽을 수 없습니다. (텍스트형 PDF만 가능)")
+            st.error("PDF 내용을 읽을 수 없습니다.")
             st.stop()
             
         jd_text = ""
         if jd_url:
             jd_text = fetch_jd(jd_url)
-            if not jd_text: st.warning("URL 읽기 실패! 텍스트로 넣어주세요.")
         elif jd_paste:
             jd_text = jd_paste
             
         if not jd_text:
             st.warning("JD 내용을 입력해주세요!")
-            st.stop()
+        else:
+            # 질문 생성 프롬프트
+            full_prompt = f"""
+            당신은 '바레이저(Bar Raiser)' 면접관입니다.
+            아래 정보를 바탕으로 질문 20개를 생성하세요.
+            
+            [타겟] {level} ({track})
+            [JD] {jd_text[:5000]}
+            [이력서] {resume_text[:10000]}
+            
+            [규칙]
+            1. JD 요구사항과 이력서 경험 연결 필수.
+            2. 레벨 {level}에 맞는 질문 난이도.
+            3. 3T(Transform, Together, Tomorrow) 분류.
+            4. 각 질문에 '> 💡 평가 가이드' 포함.
+            """
 
-        # 2. 프롬프트 조합
-        full_prompt = f"""
-        당신은 '바레이저(Bar Raiser)' 면접관입니다.
-        아래 정보를 바탕으로 질문 20개를 생성하세요.
-        
-        [타겟] {level} ({track})
-        [JD 내용] {jd_text[:5000]}
-        [이력서 내용] {resume_text[:10000]}
-        
-        [규칙]
-        1. JD 요구사항과 이력서 경험 연결.
-        2. 레벨 {level} 난이도.
-        3. 3T 가치 분류, 평가 가이드 포함.
-        """
-
-        # 3. 전송
-        with st.spinner("구글 서버와 직접 통신 중입니다..."):
-            result = call_gemini_direct(full_prompt)
-            st.markdown(result)
+            with st.spinner("Gemini 2.0 모델 접속 중..."):
+                result = call_gemini_direct(full_prompt)
+                st.markdown(result)
