@@ -5,52 +5,61 @@ import base64
 import datetime
 from bs4 import BeautifulSoup
 
-# --- 1. 페이지 설정 및 섬세한 UI 보정 CSS ---
+# --- 1. 페이지 설정 및 붕괴 방지용 강격 CSS ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
     <style>
-    /* 아이콘 버튼(🔄, ➕, ✕)을 텍스트와 완벽하게 수직 중앙 정렬 */
-    .stButton > button {
+    /* 1. 글자 깨짐(세로 쏟아짐) 원천 차단 */
+    [data-testid="column"] {
+        min-width: 300px !important; /* 열의 최소 너비를 보장하여 글자 쏟아짐 방지 */
+    }
+    .stMarkdown p, .stSubheader {
+        word-break: keep-all !important;
+        white-space: normal !important;
+    }
+
+    /* 2. 아이콘 버튼(🔄, ➕, ✕) 수직 중앙 정렬 */
+    .v-center {
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
-        padding: 0px !important;
+        height: 100% !important;
+        padding-top: 10px !important;
+    }
+    .v-center button {
         height: 32px !important;
         width: 32px !important;
-        margin-top: 2.5px !important; /* 수직 정렬 황금 비율 */
-        font-size: 16px !important;
+        padding: 0px !important;
     }
-    /* 사이드바 버튼 늘어짐 방지 */
-    [data-testid="stSidebar"] .stButton > button {
-        width: 100% !important;
-        height: auto !important;
-        margin-top: 0px !important;
-        padding: 10px !important;
+
+    /* 3. 텍스트 겹침 방지 여백 */
+    .q-block {
+        margin-bottom: 15px !important;
+        padding-bottom: 5px !important;
     }
-    /* 질문 텍스트 스타일: 겹침 방지를 위해 하단 여백 추가 */
     .q-text {
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.6 !important;
-        margin-bottom: 10px !important; /* 텍스트 겹침 방지용 여백 */
-        word-break: keep-all !important;
+        margin-bottom: 8px !important;
     }
-    /* 전체적인 여백 최적화 */
-    [data-testid="stExpander"] .stVerticalBlock {
-        gap: 0.2rem !important;
+
+    /* 4. 사이드바 버튼 정렬 */
+    [data-testid="stSidebar"] .stButton button {
+        width: 100% !important;
+        height: auto !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. API 키 설정 ---
+# --- 2. API 키 및 데이터 초기화 ---
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
 except:
     st.error("🚨 API 키를 설정해주세요.")
     st.stop()
 
-# --- 3. 세션 상태 관리 ---
 if "ai_questions" not in st.session_state:
     st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
 if "selected_questions" not in st.session_state:
@@ -75,7 +84,7 @@ LEVEL_GUIDELINES = {
     "M-L7": "[디렉터] 전략 방향 및 조직 시너시 총괄."
 }
 
-# --- 4. 함수 정의 ---
+# --- 3. 핵심 함수 ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -85,7 +94,7 @@ def fetch_jd(url):
     except: return None
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
-    prompt = f"[Role] Bar Raiser. [Value] {BAR_RAISER_CRITERIA[category]}. [Task] 10 Questions JSON List."
+    prompt = f"[Role] Bar Raiser. [Value] {BAR_RAISER_CRITERIA[category]}. [Task] 10 Questions JSON List: [{{'q': '질문', 'i': '의도'}}, ...]"
     try:
         pdf_base64 = base64.b64encode(resume_file.getvalue()).decode('utf-8')
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={API_KEY}"
@@ -95,7 +104,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
         return json.loads(cleaned)
     except: return []
 
-# --- 5. 사이드바 (디자인 및 설명 유지) ---
+# --- 4. 사이드바 (레벨 설명 상시 노출) ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()))
@@ -107,83 +116,95 @@ with st.sidebar:
         jd_from_url = fetch_jd(url_input) if url_input else ""
     with tab2:
         jd_from_text = st.text_area("내용 붙여넣기", height=150)
-    jd_final_content = jd_from_text if jd_from_text else jd_from_url
+    jd_final = jd_from_text if jd_from_text else jd_from_url
 
     resume_file = st.file_uploader("PDF 업로드", type="pdf")
-    
     st.divider()
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
-        if resume_file and jd_final_content:
+        if resume_file and jd_final:
             with st.spinner("질문 설계 중..."):
                 for cat in ["Transform", "Tomorrow", "Together"]:
-                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final_content)
-        else: st.error("이력서와 JD를 모두 확인해주세요.")
+                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
+        else: st.error("이력서와 JD를 확인해주세요.")
 
-# --- 6. 메인 화면 ---
+# --- 5. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
 st.divider()
 
-# 레이아웃 깨짐 방지 토글
+# [레이아웃 핵심] 버튼으로 모드 전환
 btn_label = "🔙 면접관 노트 다시 열기" if st.session_state.wide_mode else "↔️ 질문 리스트 넓게 보기 (노트 접기)"
 if st.button(btn_label):
     st.session_state.wide_mode = not st.session_state.wide_mode
     st.rerun()
 
-# 와이드 모드 시 컬럼 나누지 않음
-if st.session_state.wide_mode:
-    col_q_container = st.container()
-else:
-    col_q, col_n = st.columns([1.1, 1])
-
-# [질문 리스트 렌더링 함수]
-def render_list():
+# [질문 리스트 출력 함수]
+def render_questions():
     st.subheader("🎯 제안 질문 리스트")
     for cat in ["Transform", "Tomorrow", "Together"]:
         with st.expander(f"📌 {cat}({BAR_RAISER_CRITERIA[cat]}) 리스트", expanded=True):
-            h_col, ref_col = st.columns([0.94, 0.06])
-            with ref_col:
+            # 새로고침 버튼 수직 중앙 정렬
+            c1, c2 = st.columns([0.9, 0.1])
+            with c2:
+                st.markdown('<div class="v-center">', unsafe_allow_html=True)
                 if st.button("🔄", key=f"ref_{cat}"):
-                    if resume_file and jd_final_content:
-                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final_content)
+                    if resume_file and jd_final:
+                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
                         st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
             
             st.divider()
             for i, q in enumerate(st.session_state.ai_questions[cat]):
-                question_text = q.get('q', '질문 없음')
-                qc, ac = st.columns([0.94, 0.06])
-                qc.markdown(f"<div class='q-text'>Q. {question_text}</div>", unsafe_allow_html=True)
+                q_text = q.get('q', '질문 데이터 오류')
+                i_text = q.get('i', '의도 데이터 오류')
+                
+                # + 버튼 수직 중앙 정렬
+                qc, ac = st.columns([0.9, 0.1])
+                with qc:
+                    st.markdown(f"<div class='q-block'><div class='q-text'>Q. {q_text}</div>", unsafe_allow_html=True)
+                    st.caption(f"🎯 의도: {i_text}")
+                    st.markdown("</div>", unsafe_allow_html=True)
                 with ac:
+                    st.markdown('<div class="v-center">', unsafe_allow_html=True)
                     if st.button("➕", key=f"add_{cat}_{i}"):
-                        if question_text not in [sq['q'] for sq in st.session_state.selected_questions]:
-                            st.session_state.selected_questions.append({"q": question_text, "cat": cat, "memo": ""})
-                st.caption(f"🎯 의도: {q.get('i', '의도 없음')}")
+                        if q_text not in [sq['q'] for sq in st.session_state.selected_questions]:
+                            st.session_state.selected_questions.append({"q": q_text, "cat": cat, "memo": ""})
+                    st.markdown('</div>', unsafe_allow_html=True)
                 st.divider()
 
+# [모드에 따른 레이아웃 렌더링]
 if st.session_state.wide_mode:
-    with col_q_container: render_list()
+    # 와이드 모드: 단일 컨테이너로 전체 화면 사용 (절대 안 깨짐)
+    render_questions()
 else:
-    with col_q: render_list()
-    with col_n:
+    # 일반 모드: 질문(1.2) : 노트(1) 비율 유지
+    col_left, col_right = st.columns([1.2, 1])
+    with col_left:
+        render_questions()
+    with col_right:
         st.subheader("📝 면접관 노트")
         if st.button("➕ 질문을 직접 입력하세요.", use_container_width=True):
             st.session_state.selected_questions.append({"q": "", "cat": "Custom", "memo": ""})
         
         st.divider()
         for idx, item in enumerate(st.session_state.selected_questions):
-            tag_col, del_col = st.columns([0.94, 0.06])
-            with tag_col:
+            # ✕ 버튼 수직 중앙 정렬
+            t_col, d_col = st.columns([0.9, 0.1])
+            with t_col:
                 st.markdown(f"<span style='font-size:0.8rem; color:gray;'>Q{idx+1}</span> <span style='background-color:#f0f2f6; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>{item.get('cat','Custom')}</span>", unsafe_allow_html=True)
-            with del_col:
+            with d_col:
+                st.markdown('<div class="v-center">', unsafe_allow_html=True)
                 if st.button("✕", key=f"del_{idx}"):
                     st.session_state.selected_questions.pop(idx)
                     st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
             
-            q_val = item['q']
-            q_height = max(80, (len(q_val) // 35) * 25 + 35)
-            st.session_state.selected_questions[idx]['q'] = st.text_area(f"q_{idx}", value=q_val, label_visibility="collapsed", height=q_height, key=f"area_q_{idx}")
-            st.session_state.selected_questions[idx]['memo'] = st.text_area(f"m_{idx}", value=item.get('memo',''), placeholder="답변 메모...", label_visibility="collapsed", height=150, key=f"area_m_{idx}")
+            # 질문 및 메모창
+            q_val = item.get('q','')
+            q_h = max(80, (len(q_val) // 35) * 25 + 35)
+            st.session_state.selected_questions[idx]['q'] = st.text_area(f"q_note_{idx}", value=q_val, label_visibility="collapsed", height=q_h, key=f"area_q_{idx}")
+            st.session_state.selected_questions[idx]['memo'] = st.text_area(f"m_note_{idx}", value=item.get('memo',''), placeholder="답변 메모...", label_visibility="collapsed", height=150, key=f"area_m_{idx}")
             st.markdown("<div style='margin-bottom:15px; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
 
         if st.session_state.selected_questions:
-            output = f"Target: {selected_level}\n" + "\n".join([f"[{s.get('cat','Custom')}] Q: {s['q']}\nA: {s.get('memo','')}" for s in st.session_state.selected_questions])
+            output = f"Target: {selected_level}\n" + "\n".join([f"[{s.get('cat','Custom')}] Q: {s.get('q','')}\nA: {s.get('memo','')}" for s in st.session_state.selected_questions])
             st.download_button("💾 결과 저장 (.txt)", output, f"Interview.txt", type="primary", use_container_width=True)
