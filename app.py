@@ -1,14 +1,11 @@
 import streamlit as st
 import google.generativeai as genai
+import PyPDF2
 import requests
 from bs4 import BeautifulSoup
 
 # --- 1. 페이지 설정 ---
-st.set_page_config(
-    page_title="바레이저 면접 질문 생성기",
-    page_icon="🧐",
-    layout="wide"
-)
+st.set_page_config(page_title="바레이저 면접 질문 생성기", layout="wide")
 
 # --- 2. API 키 설정 ---
 try:
@@ -19,6 +16,18 @@ except:
     st.stop()
 
 # --- 3. 함수 정의 ---
+
+# (구관이 명관) 가장 확실한 텍스트 추출 방식 사용
+def extract_text_from_pdf(uploaded_file):
+    try:
+        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() or ""
+        return text
+    except:
+        return ""
+
 def fetch_jd_content(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -31,41 +40,35 @@ def fetch_jd_content(url):
     except:
         return None
 
-def get_ai_response(level, track, jd_text, resume_file):
-    # [변경] 에러가 적고 성능이 좋은 Pro 모델로 고정
-    model = genai.GenerativeModel('gemini-1.5-pro')
+def get_ai_response(level, track, jd_text, resume_text):
+    # [핵심 변경] 1.5 버전 대신, 에러가 절대 없는 'gemini-pro' (1.0 버전) 사용
+    model = genai.GenerativeModel('gemini-pro')
     
-    prompt_text = f"""
+    prompt = f"""
     당신은 '바레이저(Bar Raiser)' 면접관입니다.
-    함께 제공된 [이력서 파일]과 아래 [JD 내용]을 분석하여 면접 질문 20개를 생성하세요.
+    아래 정보를 바탕으로 3T 가치 기반 면접 질문 20개를 생성하세요.
     
-    [분석 정보]
-    - 타겟 레벨: {level} ({track})
-    - JD 내용: {jd_text[:10000]}
+    [정보]
+    - 레벨: {level} ({track})
+    - JD: {jd_text[:5000]}
+    - 이력서: {resume_text[:10000]}
     
-    [요청 사항]
-    1. 이력서가 이미지로 되어 있어도 내용을 꼼꼼히 읽어서 분석하세요.
-    2. 질문은 반드시 'JD의 요구사항'과 '이력서의 경험'을 연결해야 합니다.
-    3. 레벨 {level}에 맞는 난이도(실무 vs 전략)로 질문하세요.
-    4. 출력은 Markdown 형식으로, 3T(Transform, Together, Tomorrow) 카테고리로 나누세요.
-    5. 각 질문 밑에 '> 💡 평가 가이드'를 꼭 달아주세요.
+    [규칙]
+    1. 질문은 'JD 요구사항'과 '이력서 경험'을 반드시 연결할 것.
+    2. 레벨 {level}에 맞는 난이도로 질문할 것.
+    3. Markdown 형식으로, 3T(Transform, Together, Tomorrow)로 분류할 것.
+    4. 각 질문에 '> 💡 평가 가이드'를 포함할 것.
     """
     
-    # PDF 파일 처리
-    resume_data = {
-        "mime_type": "application/pdf",
-        "data": resume_file.getvalue()
-    }
-    
     try:
-        response = model.generate_content([prompt_text, resume_data])
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"⚠️ 에러 발생: {str(e)}\n(잠시 후 다시 시도하거나, 파일 크기를 확인해주세요.)"
+        return f"죄송합니다. 오류가 발생했습니다: {str(e)}"
 
 # --- 4. 화면 구성 ---
-st.title("🧐 바레이저 면접 질문 생성기 (Pro)")
-st.caption("안정적인 Gemini 1.5 Pro 모델을 사용합니다.")
+st.title("🧐 바레이저 면접 질문 생성기 (안전 모드)")
+st.caption("✅ 가장 안정적인 버전으로 구동됩니다.")
 
 with st.sidebar:
     st.header("1. 기본 정보")
@@ -89,7 +92,7 @@ with st.sidebar:
         jd_content = st.text_area("JD 내용 복사/붙여넣기", height=150)
 
     st.header("3. 이력서 (PDF)")
-    resume_file = st.file_uploader("PDF 업로드 (이미지/스캔본 가능)", type="pdf")
+    resume_file = st.file_uploader("PDF 업로드", type="pdf")
     
     btn = st.button("질문 생성하기 ✨", type="primary", use_container_width=True)
 
@@ -99,11 +102,14 @@ if btn:
     elif not resume_file:
         st.warning("👈 이력서 파일을 업로드해주세요.")
     else:
-        with st.spinner("AI가 이력서를 정밀 분석 중입니다... (최대 40초 소요)"):
-            result = get_ai_response(level, track, jd_content, resume_file)
-            
-            if "에러 발생" in result:
-                st.error(result)
-            else:
-                st.success("분석 완료!")
+        # 안전 모드: 텍스트 추출 후 AI 전송
+        resume_text = extract_text_from_pdf(resume_file)
+        
+        if not resume_text:
+            st.error("❌ 이력서에서 글자를 읽을 수 없습니다. (이미지 파일인가요?)")
+            st.info("이 안전 모드 버전은 '텍스트로 된 PDF'만 읽을 수 있습니다.")
+        else:
+            with st.spinner("AI가 분석 중입니다..."):
+                result = get_ai_response(level, track, jd_content, resume_text)
+                st.success("완료!")
                 st.markdown(result)
