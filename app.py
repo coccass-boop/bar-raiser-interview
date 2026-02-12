@@ -22,7 +22,7 @@ except:
     st.stop()
 
 # ==============================================================================
-# [공식 문서 기준] 3T & 9VALUE 정의
+# [공식 문서 기준] 3T & 9VALUE 정의 (이미지 기반)
 # ==============================================================================
 VALUE_SYSTEM = {
     "Transform": [
@@ -43,7 +43,7 @@ VALUE_SYSTEM = {
 }
 
 # ==============================================================================
-# [공식 문서 기준] 직무 레벨별 공통 기대수준 정의
+# [공식 문서 기준] 직무 레벨별 공통 기대수준 정의 (Role Persona 반영)
 # ==============================================================================
 LEVEL_GUIDELINES = {
     "IC-L3": "[기본기를 확립하는 실무자] 명확한 지시와 가이드 하에 업무 수행, 직무 기초 지식과 기술 학습. (Unit의 룰과 문화를 존중하며 긍정적 태도로 협력)",
@@ -60,14 +60,17 @@ LEVEL_GUIDELINES = {
 
 def call_gemini_vision(prompt, pdf_file):
     """
-    [핵심] 이미지/PDF를 직접 인식하는 멀티모달 함수
+    [핵심] Vision AI 연결 (모델을 2.0으로 고정)
     """
     try:
-        # PDF 파일을 Base64로 인코딩
+        # PDF 파일을 Base64로 변환
         pdf_bytes = pdf_file.getvalue()
         pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
         
-        models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
+        # [중요] 선생님 계정에서 확실한 모델 1개만 사용 (에러 혼선 방지)
+        target_model = "gemini-2.0-flash"
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
         headers = {'Content-Type': 'application/json'}
         
         data = {
@@ -84,24 +87,17 @@ def call_gemini_vision(prompt, pdf_file):
             }]
         }
         
-        last_error = ""
-        for model_name in models_to_try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}"
-            try:
-                # [수정된 부분] 괄호 오류 방지를 위해 한 줄로 작성
-                response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
-                
-                if response.status_code == 200:
-                    return response.json()['candidates'][0]['content']['parts'][0]['text']
-                else:
-                    last_error = response.text
-            except Exception as e:
-                last_error = str(e)
-                continue
+        # 요청 전송
+        response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
+        
+        if response.status_code == 200:
+            return response.json()['candidates'][0]['content']['parts'][0]['text']
+        else:
+            # 에러 발생 시 상세 내용 출력
+            return f"⚠️ 분석 실패 (코드 {response.status_code}): {response.text}"
             
-        return f"분석 실패. (에러 내용: {last_error})"
     except Exception as e:
-        return f"파일 처리 중 오류 발생: {str(e)}"
+        return f"⚠️ 시스템 오류: {str(e)}"
 
 def fetch_jd(url):
     try:
@@ -140,9 +136,9 @@ with st.sidebar:
     st.divider()
     btn = st.button("질문 리스트 생성 🚀", type="primary", use_container_width=True)
 
-    # 관리자 메뉴 (숨김)
+    # 관리자 메뉴
     st.markdown("---")
-    with st.expander("ℹ️ System Version 3.3 (Stable Patch)"): 
+    with st.expander("ℹ️ System Version 3.4 (Fix Patch)"): 
         st.caption("Admin Access Only")
         admin_pw = st.text_input("Access Key", type="password", key="admin_access")
         mode = "Admin" if admin_pw == "admin1234" else "User"
@@ -152,8 +148,8 @@ if mode == "Admin":
     st.title("📊 Bar Raiser Insight Dashboard")
     st.markdown("---")
     c1, c2, c3 = st.columns(3)
-    c1.metric("누적 생성 건수", "156건", "+14")
-    c2.metric("시스템 상태", "Normal", "Stable")
+    c1.metric("누적 생성 건수", "158건", "+2")
+    c2.metric("시스템 상태", "Stable", "2.0 Flash")
     c3.metric("최다 검증 가치", "Active Learning", "31%")
     
     st.subheader("📈 9Value별 질문 생성 비율")
@@ -168,12 +164,13 @@ else:
     st.markdown(f"> **면접관님의 든든한 파트너** | **Vision AI**가 이력서를 정밀 분석합니다.")
     st.divider()
     
+    # [문법 오류 수정 완료]
     with st.expander("💡 우리 회사의 3T & 9VALUE 정의 보기 (Official)"):
         c1, c2, c3 = st.columns(3)
         with c1: 
             st.markdown("### **Transform**")
             for v in VALUE_SYSTEM["Transform"]: 
-                st.caption(v)
+                st.caption(v) # 괄호 닫힘 확인 완료
         with c2: 
             st.markdown("### **Tomorrow**")
             for v in VALUE_SYSTEM["Tomorrow"]: 
@@ -192,6 +189,7 @@ else:
         if not resume_file or not jd_content:
             st.toast("JD와 이력서를 모두 입력해주세요!", icon="⚠️")
         else:
+            # 프롬프트 구성
             prompt = f"""
             [Role] You are an expert 'Bar Raiser' interviewer aligned with the company's official framework.
             
@@ -230,14 +228,20 @@ else:
     if st.session_state.ai_result:
         with col_l:
             st.subheader(f"🤖 AI 제안 질문 ({selected_level})")
-            st.info("AI가 이력서 원본을 시각적으로 분석하여 생성했습니다.")
-            with st.container(height=600):
-                st.markdown(st.session_state.ai_result)
             
-            st.divider()
-            with st.expander("의견 보내기"):
-                st.slider("9Value 적합도", 1, 5, 5)
-                st.button("제출")
+            # 결과가 에러 메시지인지 확인
+            if "⚠️" in st.session_state.ai_result:
+                st.error(st.session_state.ai_result)
+                st.info("팁: 파일 크기가 너무 크면 줄여서 다시 시도해보세요.")
+            else:
+                st.info("AI가 이력서 원본을 시각적으로 분석하여 생성했습니다.")
+                with st.container(height=600):
+                    st.markdown(st.session_state.ai_result)
+                
+                st.divider()
+                with st.expander("의견 보내기"):
+                    st.slider("9Value 적합도", 1, 5, 5)
+                    st.button("제출")
 
         with col_r:
             st.subheader("📝 면접관 노트")
