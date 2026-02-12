@@ -25,16 +25,13 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. 데이터 초기화 ---
-if "ai_questions" not in st.session_state:
-    st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
-if "selected_questions" not in st.session_state:
-    st.session_state.selected_questions = []
-if "view_mode" not in st.session_state:
-    st.session_state.view_mode = "Standard" 
-if "temp_setting" not in st.session_state:
-    st.session_state.temp_setting = 0.7
-if "raw_error" not in st.session_state: # 에러 추적용
-    st.session_state.raw_error = ""
+for key in ["ai_questions", "selected_questions", "view_mode", "temp_setting", "raw_error"]:
+    if key not in st.session_state:
+        if key == "ai_questions": st.session_state[key] = {"Transform": [], "Tomorrow": [], "Together": []}
+        elif key == "selected_questions": st.session_state[key] = []
+        elif key == "view_mode": st.session_state[key] = "Standard"
+        elif key == "temp_setting": st.session_state[key] = 0.7
+        else: st.session_state[key] = ""
 
 BAR_RAISER_CRITERIA = {
     "Transform": "Create Enduring Value",
@@ -49,7 +46,7 @@ LEVEL_GUIDELINES = {
     "M-L6": "[시니어 리더] 육성 관리.", "M-L7": "[디렉터] 전략 총괄."
 }
 
-# --- 3. 핵심 함수 (안전 필터 해제 및 파싱 강화) ---
+# --- 3. 핵심 함수 (이미지/PDF 멀티모달 지원) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -61,19 +58,22 @@ def fetch_jd(url):
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
     api_key = st.secrets.get("GEMINI_API_KEY")
-    prompt = f"""당신은 전문 면접관입니다. 후보자의 레벨({level})과 가치({BAR_RAISER_CRITERIA[category]})에 집중하여 이력서와 JD를 분석해 질문 10개를 만드세요.
-    반드시 한국어로 작성하고, 다른 설명 없이 오직 JSON 배열만 출력하세요. 
-    형식: [{{"q": "질문", "i": "의도"}}]"""
+    prompt = f"""[Role] Bar Raiser Interviewer. [Target] {level}. [Value] {BAR_RAISER_CRITERIA[category]}.
+    Analyze the attached Resume and the provided JD: {jd_text[:2000]}
+    Create 10 interview questions in Korean. Return ONLY a JSON array.
+    Format: [{{"q": "질문", "i": "의도"}}]"""
+    
+    # 파일 타입 자동 감지 로직 추가
+    file_ext = resume_file.name.split('.')[-1].lower()
+    mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
     
     try:
-        pdf_base64 = base64.b64encode(resume_file.getvalue()).decode('utf-8')
-        # 모델 안정성을 위해 v1beta 사용
+        file_content = base64.b64encode(resume_file.getvalue()).decode('utf-8')
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         
         data = {
-            "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": "application/pdf", "data": pdf_base64}}]}],
+            "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": mime_type, "data": file_content}}]}],
             "generationConfig": {"temperature": st.session_state.temp_setting},
-            # 안전 필터 최대한 해제 (이력서 내 단어 오판 방지)
             "safetySettings": [
                 {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                 {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -86,12 +86,9 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
         
         if 'candidates' in res_json and 'content' in res_json['candidates'][0]:
             raw_content = res_json['candidates'][0]['content']['parts'][0]['text']
-            # JSON 추출 로직 강화
             json_match = re.search(r'\[\s*{.*}\s*\]', raw_content, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
+            if json_match: return json.loads(json_match.group())
         
-        # 에러 추적 로그 기록
         st.session_state.raw_error = str(res_json)
         return []
     except Exception as e:
@@ -112,18 +109,19 @@ with st.sidebar:
         jd_fetched = fetch_jd(url_input) if url_input else None
         if url_input:
             if jd_fetched: st.success("✅ JD 분석 완료")
-            else: st.error("❌ 분석 불가. 직접 입력하세요.")
+            else: st.error("❌ 분석 실패. 텍스트를 직접 입력하세요.")
     with tab2:
         jd_text_area = st.text_area("내용 붙여넣기", height=150)
     jd_final = jd_text_area if jd_text_area else jd_fetched
 
     st.subheader("3. 이력서")
-    resume_file = st.file_uploader("PDF 업로드", type="pdf")
+    # [수정] 이미지 파일 형식(png, jpg) 지원 추가
+    resume_file = st.file_uploader("PDF 또는 이미지 업로드", type=["pdf", "png", "jpg", "jpeg"])
     
     st.divider()
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
         if resume_file and jd_final:
-            with st.spinner("질문 생성 중..."):
+            with st.spinner("AI가 파일을 읽고 질문을 만드는 중..."):
                 for cat in ["Transform", "Tomorrow", "Together"]:
                     st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
             st.rerun()
@@ -136,12 +134,9 @@ with st.sidebar:
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # [설정] 에러 로그 확인용
     with st.expander("⚙️"):
         st.session_state.temp_setting = st.slider("Temp", 0.0, 1.0, st.session_state.temp_setting)
-        if st.session_state.raw_error:
-            st.caption("최근 에러 로그:")
-            st.code(st.session_state.raw_error[:200])
+        if st.session_state.raw_error: st.code(st.session_state.raw_error[:200])
 
 # --- 5. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
@@ -152,6 +147,8 @@ if c_v2.button("⬅️ 기본 보기 (반반)", use_container_width=True): st.se
 if c_v3.button("↔️ 면접관 노트만 보기", use_container_width=True): st.session_state.view_mode = "NoteWide"; st.rerun()
 
 st.divider()
+
+
 
 def render_questions():
     st.subheader("🎯 제안 질문 리스트")
@@ -169,7 +166,6 @@ def render_questions():
                     st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
             st.divider()
-            
             for i, q in enumerate(st.session_state.ai_questions.get(cat, [])):
                 q_val, i_val = q.get('q','질문 생성 실패'), q.get('i','형식 오류')
                 qc, ac = st.columns([0.94, 0.06])
