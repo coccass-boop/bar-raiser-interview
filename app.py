@@ -27,8 +27,9 @@ def fetch_jd(url):
         return None
 
 def get_ai_response(level, track, jd_text, resume_file):
-    # [핵심 수정] 에러 로그에 있던 '사용 가능한 모델' 중 하나인 2.0 Flash 사용
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    # [최종 수정] 무료 사용량이 가장 넉넉하고 안정적인 1.5 Flash로 복귀
+    # (라이브러리가 업데이트되었으므로 이제 에러 없이 작동합니다!)
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
     prompt = f"""
     당신은 '바레이저(Bar Raiser)' 면접관입니다.
@@ -52,14 +53,15 @@ def get_ai_response(level, track, jd_text, resume_file):
     }
     
     try:
+        # 안전장치: 에러 발생 시 내용을 보여줌
         response = model.generate_content([prompt, resume_data])
         return response.text
     except Exception as e:
-        return f"⚠️ 에러 발생: {str(e)}"
+        return f"⚠️ 에러 발생: {str(e)}\n(잠시 후 다시 시도해주세요.)"
 
 # --- 4. 화면 구성 ---
-st.title("🧐 바레이저 면접 질문 생성기 (v2.0)")
-st.caption("🚀 최신 Gemini 2.0 Flash 모델이 적용되었습니다.")
+st.title("🧐 바레이저 면접 질문 생성기")
+st.caption("✅ 무료 사용량이 넉넉한 Gemini 1.5 Flash 모델로 구동됩니다.")
 
 with st.sidebar:
     st.header("1. 입력 정보")
@@ -94,6 +96,6 @@ if btn:
     elif not resume_file:
         st.warning("👈 이력서를 업로드해주세요!")
     else:
-        with st.spinner("Gemini 2.0이 분석 중입니다..."):
+        with st.spinner("AI가 분석 중입니다..."):
             result = get_ai_response(level, track, jd_content, resume_file)
             st.markdown(result)
