@@ -30,9 +30,6 @@ st.markdown("""
 
     /* 4. 사이드바 버튼 정렬 */
     [data-testid="stSidebar"] .stButton button { width: 100% !important; height: auto !important; }
-    
-    /* 5. 버튼 그룹 스타일 */
-    .view-btn-group { display: flex; gap: 10px; margin-bottom: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -42,7 +39,7 @@ if "ai_questions" not in st.session_state:
 if "selected_questions" not in st.session_state:
     st.session_state.selected_questions = []
 if "view_mode" not in st.session_state:
-    st.session_state.view_mode = "Standard" # Standard, QuestionWide, NoteWide
+    st.session_state.view_mode = "Standard" 
 
 BAR_RAISER_CRITERIA = {
     "Transform": "Create Enduring Value",
@@ -67,7 +64,7 @@ def fetch_jd(url):
     except: return None
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
-    prompt = f"[Role] Bar Raiser. [Value] {BAR_RAISER_CRITERIA[category]}. [Task] 10 Questions JSON List."
+    prompt = f"[Role] Bar Raiser. [Value] {BAR_RAISER_CRITERIA[category]}. [Task] 10 Questions JSON List. [Format] {{'q': '질문', 'i': '의도'}}"
     try:
         pdf_base64 = base64.b64encode(resume_file.getvalue()).decode('utf-8')
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={API_KEY}"
@@ -80,9 +77,14 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
 # --- 4. 사이드바 ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
+    
+    # [추가] 후보자 이름 입력란
+    candidate_name = st.text_input("👤 후보자 이름", placeholder="이름을 입력하세요")
+    
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()))
     st.info(f"💡 {LEVEL_GUIDELINES[selected_level]}")
     
+    st.subheader("2. JD (채용공고)")
     tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
     with tab1:
         url_input = st.text_input("URL 입력")
@@ -103,15 +105,15 @@ with st.sidebar:
 # --- 5. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
 
-# [신규] 레이아웃 모드 토글 버튼 그룹
+# 레이아웃 모드 전환 버튼
 c_v1, c_v2, c_v3 = st.columns(3)
-if c_v1.button("↔️ 질문 리스트 집중", use_container_width=True):
+if c_v1.button("↔️ 질문 리스트만 보기", use_container_width=True):
     st.session_state.view_mode = "QuestionWide"
     st.rerun()
 if c_v2.button("⬅️ 기본 보기 (반반)", use_container_width=True):
     st.session_state.view_mode = "Standard"
     st.rerun()
-if c_v3.button("↔️ 면접관 노트 집중", use_container_width=True):
+if c_v3.button("↔️ 면접관 노트만 보기", use_container_width=True):
     st.session_state.view_mode = "NoteWide"
     st.rerun()
 
@@ -122,7 +124,7 @@ def render_questions():
     st.subheader("🎯 제안 질문 리스트")
     for cat in ["Transform", "Tomorrow", "Together"]:
         with st.expander(f"📌 {cat}({BAR_RAISER_CRITERIA[cat]}) 리스트", expanded=True):
-            c1, c2 = st.columns([0.9, 0.1])
+            c1, c2 = st.columns([0.94, 0.06])
             with c2:
                 st.markdown('<div class="v-center">', unsafe_allow_html=True)
                 if st.button("🔄", key=f"ref_{cat}"):
@@ -132,16 +134,18 @@ def render_questions():
                 st.markdown('</div>', unsafe_allow_html=True)
             st.divider()
             for i, q in enumerate(st.session_state.ai_questions[cat]):
-                qc, ac = st.columns([0.9, 0.1])
+                q_val = q.get('q', '질문 없음')
+                i_val = q.get('i', '의도 없음')
+                qc, ac = st.columns([0.94, 0.06])
                 with qc:
-                    st.markdown(f"<div class='q-block'><div class='q-text'>Q. {q.get('q','')}</div>", unsafe_allow_html=True)
-                    st.caption(f"🎯 의도: {q.get('i','')}")
+                    st.markdown(f"<div class='q-block'><div class='q-text'>Q. {q_val}</div>", unsafe_allow_html=True)
+                    st.caption(f"🎯 의도: {i_val}")
                     st.markdown("</div>", unsafe_allow_html=True)
                 with ac:
                     st.markdown('<div class="v-center">', unsafe_allow_html=True)
                     if st.button("➕", key=f"add_{cat}_{i}"):
-                        if q.get('q','') not in [sq['q'] for sq in st.session_state.selected_questions]:
-                            st.session_state.selected_questions.append({"q": q.get('q',''), "cat": cat, "memo": ""})
+                        if q_val not in [sq['q'] for sq in st.session_state.selected_questions]:
+                            st.session_state.selected_questions.append({"q": q_val, "cat": cat, "memo": ""})
                     st.markdown('</div>', unsafe_allow_html=True)
                 st.divider()
 
@@ -153,7 +157,7 @@ def render_notes():
     
     st.divider()
     for idx, item in enumerate(st.session_state.selected_questions):
-        t_col, d_col = st.columns([0.92, 0.08])
+        t_col, d_col = st.columns([0.94, 0.06])
         with t_col:
             st.markdown(f"<span style='font-size:0.8rem; color:gray;'>Q{idx+1}</span> <span style='background-color:#f0f2f6; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>{item.get('cat','Custom')}</span>", unsafe_allow_html=True)
         with d_col:
@@ -170,20 +174,24 @@ def render_notes():
         st.markdown("<div style='margin-bottom:15px; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
 
     if st.session_state.selected_questions:
-        # [구글 문서 최적화] 복사용 텍스트 생성
-        doc_text = f"Bar Raiser Interview Results ({selected_level})\n" + "="*40 + "\n"
+        # [수정] 저장 파일에 후보자 이름 및 날짜 포함
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        txt_output = f"Bar Raiser Interview Evaluation\n"
+        txt_output += f"후보자: {candidate_name if candidate_name else '미입력'}\n"
+        txt_output += f"레벨: {selected_level}\n"
+        txt_output += f"일시: {timestamp}\n"
+        txt_output += "="*40 + "\n"
         for s in st.session_state.selected_questions:
-            doc_text += f"\n[{s.get('cat','Custom')}] \n질문: {s.get('q','')}\n답변/메모: {s.get('memo','')}\n" + "-"*20
+            txt_output += f"\n[{s.get('cat','Custom')}] \nQ: {s.get('q','')}\nA: {s.get('memo','')}\n" + "-"*20
         
-        st.text_area("📑 구글 문서용 복사 영역 (Ctrl+A 후 복사하세요)", value=doc_text, height=100)
-        st.download_button("💾 TXT로 저장", doc_text, f"Interview_{selected_level}.txt", type="primary", use_container_width=True)
+        st.download_button("💾 면접 결과 저장 (.txt)", txt_output, f"Result_{candidate_name}_{selected_level}.txt", type="primary", use_container_width=True)
 
-# [레이아웃 실행]
+# 레이아웃 실행
 if st.session_state.view_mode == "QuestionWide":
     render_questions()
 elif st.session_state.view_mode == "NoteWide":
     render_notes()
 else:
-    col_l, col_r = st.columns([1.2, 1])
+    col_l, col_r = st.columns([1.1, 1])
     with col_l: render_questions()
     with col_r: render_notes()
