@@ -2,7 +2,6 @@ import streamlit as st
 import google.generativeai as genai
 import requests
 from bs4 import BeautifulSoup
-import time
 
 # --- 1. 페이지 설정 ---
 st.set_page_config(
@@ -33,17 +32,9 @@ def fetch_jd_content(url):
         return None
 
 def get_ai_response(level, track, jd_text, resume_file):
-    # [핵심] 최신 라이브러리에서 작동하는 모델명 지정
-    # 만약 Flash가 안되면 'gemini-1.5-pro'로 자동 변경하도록 유도할 수도 있음
-    model_name = 'gemini-1.5-flash' 
+    # [변경] 에러가 적고 성능이 좋은 Pro 모델로 고정
+    model = genai.GenerativeModel('gemini-1.5-pro')
     
-    try:
-        model = genai.GenerativeModel(model_name)
-    except:
-        # Flash 모델을 못 찾으면 Pro 모델로 재시도 (안전장치)
-        st.warning("⚠️ Flash 모델 로딩 실패, Pro 모델로 전환합니다.")
-        model = genai.GenerativeModel('gemini-1.5-pro')
-
     prompt_text = f"""
     당신은 '바레이저(Bar Raiser)' 면접관입니다.
     함께 제공된 [이력서 파일]과 아래 [JD 내용]을 분석하여 면접 질문 20개를 생성하세요.
@@ -60,17 +51,21 @@ def get_ai_response(level, track, jd_text, resume_file):
     5. 각 질문 밑에 '> 💡 평가 가이드'를 꼭 달아주세요.
     """
     
-    # 파일 데이터 처리
+    # PDF 파일 처리
     resume_data = {
         "mime_type": "application/pdf",
         "data": resume_file.getvalue()
     }
     
-    response = model.generate_content([prompt_text, resume_data])
-    return response.text
+    try:
+        response = model.generate_content([prompt_text, resume_data])
+        return response.text
+    except Exception as e:
+        return f"⚠️ 에러 발생: {str(e)}\n(잠시 후 다시 시도하거나, 파일 크기를 확인해주세요.)"
 
 # --- 4. 화면 구성 ---
-st.title("🧐 바레이저 면접 질문 생성기 (Final)")
+st.title("🧐 바레이저 면접 질문 생성기 (Pro)")
+st.caption("안정적인 Gemini 1.5 Pro 모델을 사용합니다.")
 
 with st.sidebar:
     st.header("1. 기본 정보")
@@ -104,11 +99,11 @@ if btn:
     elif not resume_file:
         st.warning("👈 이력서 파일을 업로드해주세요.")
     else:
-        with st.spinner("AI가 이력서를 분석 중입니다... (최대 30초 소요)"):
-            try:
-                result = get_ai_response(level, track, jd_content, resume_file)
+        with st.spinner("AI가 이력서를 정밀 분석 중입니다... (최대 40초 소요)"):
+            result = get_ai_response(level, track, jd_content, resume_file)
+            
+            if "에러 발생" in result:
+                st.error(result)
+            else:
                 st.success("분석 완료!")
                 st.markdown(result)
-            except Exception as e:
-                st.error(f"오류 발생: {e}")
-                st.info("팁: 잠시 후 다시 시도해보세요.")
