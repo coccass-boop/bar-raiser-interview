@@ -160,4 +160,91 @@ if mode == "Admin":
 
 else:
     st.title("✈️ Bar Raiser Copilot")
-    st.markdown(f"> **면접관님의 든든한 파트너**
+    st.markdown(f"> **면접관님의 든든한 파트너** | **Vision AI**가 이력서를 정밀 분석합니다.")
+    st.divider()
+    
+    with st.expander("💡 우리 회사의 3T & 9VALUE 정의 보기 (Official)"):
+        c1, c2, c3 = st.columns(3)
+        with c1: 
+            st.markdown("### **Transform**")
+            for v in VALUE_SYSTEM["Transform"]: 
+                st.caption(v)
+        with c2: 
+            st.markdown("### **Tomorrow**")
+            for v in VALUE_SYSTEM["Tomorrow"]: 
+                st.caption(v)
+        with c3: 
+            st.markdown("### **Together**")
+            for v in VALUE_SYSTEM["Together"]: 
+                st.caption(v)
+
+    col_l, col_r = st.columns([1.2, 1])
+
+    if "ai_result" not in st.session_state:
+        st.session_state.ai_result = ""
+
+    if btn:
+        if not resume_file or not jd_content:
+            st.toast("JD와 이력서를 모두 입력해주세요!", icon="⚠️")
+        else:
+            # 프롬프트 구성
+            prompt = f"""
+            [Role] You are an expert 'Bar Raiser' interviewer aligned with the company's official framework.
+            
+            [TARGET DEFINITION]
+            - **Level:** {selected_level} ({track_info})
+            - **Role Persona (MUST FOLLOW):** {LEVEL_GUIDELINES[selected_level]}
+            
+            [THE 9-VALUE SYSTEM (DNA)]
+            The questions MUST test these specific values defined in our official document:
+            - **Transform:** {VALUE_SYSTEM['Transform']}
+            - **Tomorrow:** {VALUE_SYSTEM['Tomorrow']}
+            - **Together:** {VALUE_SYSTEM['Together']}
+            
+            [DATA PROVIDED]
+            - Job Description (JD): {jd_content[:5000]}
+            - Candidate Resume: (Attached as PDF file. Read the visual document directly.)
+            
+            [MISSION]
+            Create 30 interview questions based on the visual resume analysis and JD text.
+            
+            [STRICT RULES]
+            1. **9VALUE Mapping:** Every question MUST explicitly map to one of the 9 specific values above.
+            2. **Level Calibration:** The difficulty MUST match the Role Persona of '{selected_level}'.
+            3. **Structure:**
+               - **Transform (10 Qs)**
+               - **Tomorrow (10 Qs)**
+               - **Together (10 Qs)**
+            4. **Format (Korean):**
+               - Question
+               - > 💡 [Specific Value Name] Assessment Point
+            """
+            
+            with st.spinner(f"Vision AI가 이력서를 스캔하고 분석 중입니다..."):
+                st.session_state.ai_result = call_gemini_vision(prompt, resume_file)
+
+    if st.session_state.ai_result:
+        with col_l:
+            st.subheader(f"🤖 AI 제안 질문 ({selected_level})")
+            
+            # 에러 체크
+            if "⚠️" in st.session_state.ai_result:
+                st.error(st.session_state.ai_result)
+            else:
+                st.info("AI가 이력서 원본을 시각적으로 분석하여 생성했습니다.")
+                with st.container(height=600):
+                    st.markdown(st.session_state.ai_result)
+                
+                st.divider()
+                with st.expander("의견 보내기"):
+                    st.slider("9Value 적합도", 1, 5, 5)
+                    st.button("제출")
+
+        with col_r:
+            st.subheader("📝 면접관 노트")
+            interview_notes = st.text_area("인터뷰 시트", height=500, placeholder="질문을 복사해두고, 답변을 메모하세요.")
+            
+            file_name = f"Interview_{selected_level}_{datetime.datetime.now().strftime('%Y%m%d')}.txt"
+            save_content = f"Date: {datetime.datetime.now()}\nTarget: {selected_level}\nPersona: {LEVEL_GUIDELINES[selected_level]}\n\n[Notes]\n{interview_notes}\n\n[AI Questions]\n{st.session_state.ai_result}"
+            
+            st.download_button("💾 노트 다운로드 (.txt)", save_content, file_name, type="primary", use_container_width=True)
