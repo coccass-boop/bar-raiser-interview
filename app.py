@@ -59,12 +59,14 @@ def fetch_jd(url):
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
-            return soup.get_text(separator='\n', strip=True)
+            # 텍스트가 너무 짧으면 스크래핑 실패로 간주
+            text = soup.get_text(separator='\n', strip=True)
+            return text if len(text) > 100 else None
     except: return None
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
     temp = st.session_state.temp_setting
-    prompt = f"[Role] Bar Raiser. [Value] {BAR_RAISER_CRITERIA[category]}. [Task] 10 Questions JSON List."
+    prompt = f"[Role] Bar Raiser. [Value] {BAR_RAISER_CRITERIA[category]}. [Task] 10 Questions JSON List. [Format] {{'q':'질문','i':'의도'}}"
     try:
         pdf_base64 = base64.b64encode(resume_file.getvalue()).decode('utf-8')
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={API_KEY}"
@@ -73,11 +75,14 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
             "generationConfig": {"temperature": temp}
         }
         res = requests.post(url, json=data, timeout=60)
-        cleaned = res.json()['candidates'][0]['content']['parts'][0]['text'].replace("```json", "").replace("```", "").strip()
-        return json.loads(cleaned)
+        res_json = res.json()
+        if 'candidates' in res_json:
+            cleaned = res_json['candidates'][0]['content']['parts'][0]['text'].replace("```json", "").replace("```", "").strip()
+            return json.loads(cleaned)
+        return []
     except: return []
 
-# --- 4. 사이드바 (초기화 및 비노출형 설정) ---
+# --- 4. 사이드바 (상태 확인창 추가) ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     
@@ -89,23 +94,31 @@ with st.sidebar:
     tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
     with tab1:
         url_input = st.text_input("URL 입력")
-        jd_final = fetch_jd(url_input) if url_input else ""
+        # [신규] URL 입력 시 즉시 스크래핑 결과 확인
+        jd_fetched = fetch_jd(url_input) if url_input else None
+        if url_input:
+            if jd_fetched: st.success("✅ JD 분석 완료")
+            else: st.warning("⚠️ URL에서 내용을 가져오지 못했습니다. [텍스트] 탭에 직접 붙여넣어주세요.")
     with tab2:
         jd_text_area = st.text_area("내용 붙여넣기", height=150)
-        jd_final = jd_text_area if jd_text_area else jd_final
+    
+    jd_final = jd_text_area if jd_text_area else jd_fetched
 
+    st.subheader("3. 이력서")
     resume_file = st.file_uploader("PDF 업로드", type="pdf")
     
     st.divider()
+    # [핵심] 모든 정보가 있을 때만 버튼 활성화 및 명확한 가이드
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
         if resume_file and jd_final:
             with st.spinner("질문 설계 중..."):
                 for cat in ["Transform", "Tomorrow", "Together"]:
                     st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
-        else: st.error("정보를 입력해주세요.")
+            st.rerun()
+        else:
+            st.error("이력서와 JD 내용을 모두 확인해주세요.")
 
     st.divider()
-    # [수정] 버튼 이름 '초기화'로 단축 및 빨간색 유지
     st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
     if st.button("🗑️ 초기화", use_container_width=True):
         for key in list(st.session_state.keys()):
@@ -113,7 +126,6 @@ with st.sidebar:
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # [수정] 관리자 설정을 아주 티 안 나게 "⚙️" 아이콘으로만 숨김
     with st.expander("⚙️", expanded=False):
         st.session_state.temp_setting = st.slider("Temperature", 0.0, 1.0, st.session_state.temp_setting)
         st.caption("Admin Mode")
@@ -121,6 +133,7 @@ with st.sidebar:
 # --- 5. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
 
+# 버튼 명칭 선생님 요청안 반영
 c_v1, c_v2, c_v3 = st.columns(3)
 if c_v1.button("↔️ 질문 리스트만 보기", use_container_width=True):
     st.session_state.view_mode = "QuestionWide"; st.rerun()
@@ -131,6 +144,7 @@ if c_v3.button("↔️ 면접관 노트만 보기", use_container_width=True):
 
 st.divider()
 
+# 
 def render_questions():
     st.subheader("🎯 제안 질문 리스트")
     for cat in ["Transform", "Tomorrow", "Together"]:
@@ -144,6 +158,11 @@ def render_questions():
                         st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
             st.divider()
+            
+            # 질문이 없을 경우 안내 메시지
+            if not st.session_state.ai_questions[cat]:
+                st.info("사이드바의 [질문 생성 시작] 버튼을 눌러주세요.")
+            
             for i, q in enumerate(st.session_state.ai_questions[cat]):
                 q_val, i_val = q.get('q','질문 없음'), q.get('i','의도 없음')
                 qc, ac = st.columns([0.94, 0.06])
