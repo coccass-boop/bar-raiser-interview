@@ -5,38 +5,47 @@ import base64
 import datetime
 from bs4 import BeautifulSoup
 
-# --- 1. 페이지 설정 및 섬세한 UI 보정 CSS (선생님 확정 디자인 유지) ---
+# --- 1. 페이지 설정 및 디자인 CSS (여백 축소 및 중앙 정렬) ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
     <style>
+    /* 1. 리스트 내부 면적(여백) 최소화 */
+    [data-testid="stExpander"] .stVerticalBlock {
+        gap: 0rem !important; /* 요소 간 간격을 0으로 */
+    }
+    .stDivider {
+        margin-top: -10px !important;
+        margin-bottom: 5px !important;
+    }
+    
+    /* 2. 아이콘 버튼 수직 중앙 정렬 (선생님 확정 디자인) */
     .icon-box {
         display: flex;
         align-items: center;
         justify-content: center;
         height: 100%;
-        padding-top: 5px;
+        padding-top: 0px; /* 여백 줄임 */
     }
     .icon-box button {
-        height: 32px !important;
-        width: 32px !important;
+        height: 30px !important;
+        width: 30px !important;
         padding: 0px !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
+        margin-top: 2px !important;
     }
+
+    /* 3. 사이드바 및 기타 레이아웃 유지 */
     [data-testid="stSidebar"] .stButton button {
         width: 100% !important;
         height: auto !important;
     }
-    .stMarkdown p, .stSubheader {
-        word-break: keep-all !important;
-        white-space: normal !important;
-    }
     .q-text {
         font-size: 16px !important;
         font-weight: 600 !important;
-        line-height: 1.6 !important;
+        line-height: 1.4 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -73,7 +82,7 @@ LEVEL_GUIDELINES = {
     "M-L7": "[디렉터] 전략 방향 및 조직 시너시 총괄."
 }
 
-# --- 4. 핵심 함수 ---
+# --- 4. 핵심 함수 (에러 방지 로직 포함) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -83,7 +92,6 @@ def fetch_jd(url):
     except: return None
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
-    # AI에게 JSON 키 값을 명확하게 지시하여 에러 확률을 낮춤
     prompt = f"[Role] Bar Raiser. [Value] {BAR_RAISER_CRITERIA[category]}. [Task] 10 Questions. RETURN JSON LIST: [{{'q': '질문', 'i': '의도'}}, ...]"
     try:
         pdf_base64 = base64.b64encode(resume_file.getvalue()).decode('utf-8')
@@ -94,7 +102,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
         return json.loads(cleaned)
     except: return []
 
-# --- 5. 사이드바 (디자인 유지) ---
+# --- 5. 사이드바 ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()))
@@ -116,7 +124,7 @@ with st.sidebar:
                     st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
         else: st.error("이력서와 JD를 확인해주세요.")
 
-# --- 6. 메인 화면 로직 ---
+# --- 6. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
 st.divider()
 
@@ -130,12 +138,13 @@ if st.session_state.wide_mode:
 else:
     col_q, col_n = st.columns([1.1, 1])
 
-# [질문 리스트 렌더링 - KeyError 방지 적용]
+# [질문 리스트 렌더링 - 면적 최적화 버전]
 with col_q:
     st.subheader("🎯 제안 질문 리스트")
     for cat in ["Transform", "Tomorrow", "Together"]:
         with st.expander(f"📌 {cat}({BAR_RAISER_CRITERIA[cat]}) 리스트", expanded=True):
-            h1, h2 = st.columns([0.94, 0.06])
+            # [수정] 상단 여백 줄이기 위해 h1 제거 후 버튼만 배치
+            _, h2 = st.columns([0.94, 0.06])
             with h2:
                 st.markdown('<div class="icon-box">', unsafe_allow_html=True)
                 if st.button("🔄", key=f"ref_{cat}"):
@@ -144,9 +153,9 @@ with col_q:
                         st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            st.divider()
+            st.divider() # CSS로 두께 조정됨
+            
             for i, q in enumerate(st.session_state.ai_questions[cat]):
-                # [Fix] q['q'] 대신 q.get('q')를 사용하여 에러 방지
                 question_text = q.get('q', '질문 데이터를 불러오지 못했습니다.')
                 intent_text = q.get('i', '의도를 불러오지 못했습니다.')
                 
@@ -161,7 +170,7 @@ with col_q:
                 st.caption(f"🎯 의도: {intent_text}")
                 st.divider()
 
-# [면접관 노트 렌더링]
+# [면접관 노트 렌더링 - 레이아웃 유지]
 if not st.session_state.wide_mode:
     with col_n:
         st.subheader("📝 면접관 노트")
