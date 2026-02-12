@@ -37,7 +37,7 @@ if "selected_questions" not in st.session_state:
     st.session_state.selected_questions = []
 if "view_mode" not in st.session_state:
     st.session_state.view_mode = "Standard" 
-if "temp_setting" not in st.session_state: # 관리자용 설정값
+if "temp_setting" not in st.session_state:
     st.session_state.temp_setting = 0.7
 
 BAR_RAISER_CRITERIA = {
@@ -63,7 +63,6 @@ def fetch_jd(url):
     except: return None
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
-    # 관리자 설정값(Temperature) 적용
     temp = st.session_state.temp_setting
     prompt = f"[Role] Bar Raiser. [Value] {BAR_RAISER_CRITERIA[category]}. [Task] 10 Questions JSON List."
     try:
@@ -78,7 +77,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
         return json.loads(cleaned)
     except: return []
 
-# --- 4. 사이드바 (초기화 및 관리자 권한 복구) ---
+# --- 4. 사이드바 (초기화 및 비노출형 설정) ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     
@@ -105,21 +104,19 @@ with st.sidebar:
                     st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
         else: st.error("정보를 입력해주세요.")
 
-    # [복구] 관리자 권한 메뉴
-    with st.expander("🔐 관리자 권한 설정"):
-        st.session_state.temp_setting = st.slider("질문 창의성 (Temperature)", 0.0, 1.0, st.session_state.temp_setting)
-        st.caption("높을수록 매번 다른 질문이 생성됩니다.")
-        if st.checkbox("고급 프롬프트 보기"):
-            st.code("Bar Raiser Expert Mode: Active")
-
     st.divider()
-    # [추가] 초기화 버튼
+    # [수정] 버튼 이름 '초기화'로 단축 및 빨간색 유지
     st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
-    if st.button("🗑️ 전체 데이터 초기화", use_container_width=True):
-        for key in st.session_state.keys():
+    if st.button("🗑️ 초기화", use_container_width=True):
+        for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # [수정] 관리자 설정을 아주 티 안 나게 "⚙️" 아이콘으로만 숨김
+    with st.expander("⚙️", expanded=False):
+        st.session_state.temp_setting = st.slider("Temperature", 0.0, 1.0, st.session_state.temp_setting)
+        st.caption("Admin Mode")
 
 # --- 5. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
