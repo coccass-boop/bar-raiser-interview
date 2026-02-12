@@ -46,7 +46,7 @@ LEVEL_GUIDELINES = {
     "M-L6": "[시니어 리더] 육성 관리.", "M-L7": "[디렉터] 전략 총괄."
 }
 
-# --- 3. 핵심 함수 (멀티모달 및 안전필터 해제) ---
+# --- 3. 핵심 함수 (API 경로 v1으로 수정 및 모델명 보정) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -58,25 +58,22 @@ def fetch_jd(url):
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
     api_key = st.secrets.get("GEMINI_API_KEY")
-    # AI가 딴소리 못하게 프롬프트를 아주 강력하게 수정
-    prompt = f"""[SYSTEM] You are a highly professional 'Bar Raiser' interviewer.
-    [TASK] Create 10 deep-dive questions in KOREAN based on the candidate's resume and this JD: {jd_text[:1500]}
-    [LEVEL] {level}
-    [CRITERIA] Focus strictly on '{BAR_RAISER_CRITERIA[category]}'.
-    [FORMAT] Return ONLY a JSON array. No explanations. No greetings.
-    [JSON STRUCTURE] [{{"q": "질문 내용", "i": "질문 의도"}}]"""
+    prompt = f"""[Role] Bar Raiser Interviewer. [Value] {BAR_RAISER_CRITERIA[category]}.
+    Analyze Resume and JD. Create 10 deep-dive questions in Korean.
+    Return ONLY a JSON array: [{{"q": "질문", "i": "의도"}}]"""
     
     file_ext = resume_file.name.split('.')[-1].lower()
     mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
     
     try:
         file_content = base64.b64encode(resume_file.getvalue()).decode('utf-8')
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        
+        # [핵심 수술 부위] v1beta 대신 안정화된 v1 버전 사용 및 모델명 명확화
+        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
         
         data = {
             "contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": mime_type, "data": file_content}}]}],
             "generationConfig": {"temperature": st.session_state.temp_setting},
-            # 안전 필터 100% 해제 (이력서 분석 차단 방지)
             "safetySettings": [
                 {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
                 {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -87,33 +84,38 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
         res = requests.post(url, json=data, timeout=60)
         res_json = res.json()
         
+        # 404 에러 시 v1beta로 재시도 (혹시 모를 서버 상태 대비)
+        if res.status_code == 404:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+            res = requests.post(url, json=data, timeout=60)
+            res_json = res.json()
+
         if 'candidates' in res_json:
             raw_text = res_json['candidates'][0]['content']['parts'][0]['text']
-            # JSON만 정교하게 추출
             json_match = re.search(r'\[\s*{.*}\s*\]', raw_text, re.DOTALL)
             if json_match: return json.loads(json_match.group())
         
-        st.session_state.debug_log = str(res_json) # 에러 추적용
+        st.session_state.debug_log = str(res_json)
         return []
     except Exception as e:
         st.session_state.debug_log = str(e)
         return []
 
-# --- 4. 사이드바 ---
+# --- 4. 사이드바 (디자인 유지) ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
-    candidate_name = st.text_input("👤 후보자 이름", value="이도훈") # 이미지 데이터 기반 기본값
-    selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), index=0) # IC-L3
+    candidate_name = st.text_input("👤 후보자 이름", placeholder="이름을 입력하세요")
+    selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()))
     st.info(f"💡 {LEVEL_GUIDELINES[selected_level]}")
     
     st.subheader("2. JD (채용공고)")
     tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
     with tab1:
-        url_input = st.text_input("URL 입력", value="https://career.megazone.com/job_p")
+        url_input = st.text_input("URL 입력")
         jd_fetched = fetch_jd(url_input) if url_input else None
         if url_input:
             if jd_fetched: st.success("✅ JD 분석 완료")
-            else: st.error("❌ URL 스캔 실패. 텍스트를 직접 입력하세요.")
+            else: st.error("❌ 분석 불가. 직접 입력하세요.")
     with tab2:
         jd_text_area = st.text_area("내용 붙여넣기", height=150)
     jd_final = jd_text_area if jd_text_area else jd_fetched
@@ -122,16 +124,13 @@ with st.sidebar:
     resume_file = st.file_uploader("PDF 또는 이미지 업로드", type=["pdf", "png", "jpg", "jpeg"])
     
     st.divider()
-    # 질문 생성 시작 버튼
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
         if resume_file and jd_final:
-            with st.spinner("AI가 이력서의 이미지를 읽고 질문을 설계 중입니다..."):
-                # 각 카테고리별로 질문 생성 (세션 상태에 즉시 저장)
+            with st.spinner("AI가 최종 관문을 통과 중입니다..."):
                 for cat in ["Transform", "Tomorrow", "Together"]:
-                    result = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
-                    st.session_state.ai_questions[cat] = result
-            st.rerun() # 강제 화면 갱신으로 질문 표시
-        else: st.warning("이력서와 JD를 모두 확인해주세요.")
+                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
+            st.rerun()
+        else: st.warning("이력서와 JD를 모두 넣어주세요.")
 
     st.divider()
     st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
@@ -142,11 +141,9 @@ with st.sidebar:
     
     with st.expander("⚙️"):
         st.session_state.temp_setting = st.slider("Temp", 0.0, 1.0, st.session_state.temp_setting)
-        if st.session_state.debug_log:
-            st.caption("Debug Log (API Response):")
-            st.code(st.session_state.debug_log[:300])
+        if st.session_state.debug_log: st.code(st.session_state.debug_log[:300])
 
-# --- 5. 메인 화면 ---
+# --- 5. 메인 화면 (3단 모드 유지) ---
 st.title("✈️ Bar Raiser Copilot")
 
 c_v1, c_v2, c_v3 = st.columns(3)
@@ -157,11 +154,10 @@ if c_v3.button("↔️ 면접관 노트만 보기", use_container_width=True): s
 st.divider()
 
 
+
 def render_questions():
     st.subheader("🎯 제안 질문 리스트")
-    # 질문이 비어있을 때의 안내 문구 (image_0d01e0.png 대응)
-    has_any_question = any(st.session_state.ai_questions.values())
-    if not has_any_question:
+    if not any(st.session_state.ai_questions.values()):
         st.info("정보 입력 후 사이드바의 **[질문 생성 시작 🚀]** 버튼을 눌러주세요.")
         return
 
@@ -171,15 +167,12 @@ def render_questions():
             with c2:
                 st.markdown('<div class="v-center">', unsafe_allow_html=True)
                 if st.button("🔄", key=f"ref_{cat}"):
-                    if resume_file and jd_final:
-                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
-                        st.rerun()
+                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
+                    st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
             st.divider()
-            
-            questions = st.session_state.ai_questions.get(cat, [])
-            for i, q in enumerate(questions):
-                q_val, i_val = q.get('q','질문 생성 중...'), q.get('i','의도 파악 중...')
+            for i, q in enumerate(st.session_state.ai_questions.get(cat, [])):
+                q_val, i_val = q.get('q','질문 생성 실패'), q.get('i','오류 발생')
                 qc, ac = st.columns([0.94, 0.06])
                 with qc:
                     st.markdown(f"<div class='q-block'><div class='q-text'>Q. {q_val}</div><div style='color:gray; font-size:0.85rem;'>🎯 의도: {i_val}</div></div>", unsafe_allow_html=True)
@@ -219,7 +212,6 @@ def render_notes():
             txt_out += f"\n[{s.get('cat','Custom')}] Q: {s.get('q','')}\nA: {s.get('memo','')}\n"
         st.download_button("💾 면접 결과 저장 (.txt)", txt_out, f"Result_{candidate_name}.txt", type="primary", use_container_width=True)
 
-# 레이아웃 실행
 if st.session_state.view_mode == "QuestionWide": render_questions()
 elif st.session_state.view_mode == "NoteWide": render_notes()
 else:
