@@ -10,26 +10,32 @@ st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="
 
 st.markdown("""
     <style>
-    /* 1. 제안 리스트 내의 아이콘 버튼(➕, 🔄, ✕)만 크기 조절 (사이드바 버튼 제외) */
-    .icon-btn button {
-        height: 30px !important;
-        width: 30px !important;
+    /* 아이콘 버튼(🔄, ➕, ✕) 중앙 정렬 및 크기 고정 */
+    .centered-btn {
+        display: flex;
+        justify-content: center; /* 가로 중앙 */
+        align-items: center;     /* 세로 중앙 */
+        height: 100%;
+        margin-top: 5px;
+    }
+    .centered-btn button {
+        height: 32px !important;
+        width: 32px !important;
         padding: 0px !important;
-        margin-top: 5px !important;
         display: flex;
         justify-content: center;
         align-items: center;
     }
-    /* 2. 질문 제목 및 텍스트 영역 가독성 */
+    /* 질문 텍스트 스타일 */
     .q-text {
         font-size: 16px !important;
         font-weight: 600 !important;
         line-height: 1.5 !important;
     }
-    /* 3. 사이드바 버튼은 기본 스타일 유지 (늘어짐 방지) */
+    /* 사이드바 버튼 정렬 유지 */
     [data-testid="stSidebar"] .stButton button {
-        height: auto !important;
         width: 100% !important;
+        height: auto !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -49,10 +55,9 @@ if "selected_questions" not in st.session_state:
 if "wide_mode" not in st.session_state:
     st.session_state.wide_mode = False
 
-# 바레이저 전용 핵심 3T 기준 (질문 생성 시 이 기준만 사용)
 BAR_RAISER_CRITERIA = {
-    "Transform": "Create Enduring Value (시간이 지날수록 더 큰 가치를 만들어내는 솔루션을 구축)",
-    "Tomorrow": "Forward Thinking (미래를 고려해 확장성과 지속성을 갖춘 솔루션을 구축)",
+    "Transform": "Create Enduring Value (시간이 지날수록 더 큰 가치를 만들어내는 솔루션 구축)",
+    "Tomorrow": "Forward Thinking (미래를 고려해 확장성과 지속성을 갖춘 솔루션 구축)",
     "Together": "Trust & Growth (서로의 발전을 지원하며 함께 성장)"
 }
 
@@ -78,13 +83,7 @@ def fetch_jd(url):
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
     target_value = BAR_RAISER_CRITERIA[category]
-    prompt = f"""
-    [Role] Bar Raiser Interviewer. 
-    [Target Category] {category}: {target_value}
-    [Context] Analyze the candidate's resume and JD to find gaps related to {target_value}.
-    [Task] Create 10 deep-dive questions in Korean.
-    [Format] JSON ONLY: [{{"q": "질문", "i": "의도"}}, ...]
-    """
+    prompt = f"[Role] Bar Raiser. [Category] {category}: {target_value}. [Task] Create 10 questions. Format: JSON list."
     try:
         pdf_base64 = base64.b64encode(resume_file.getvalue()).decode('utf-8')
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={API_KEY}"
@@ -94,18 +93,16 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
         return json.loads(cleaned)
     except: return []
 
-# --- 5. 사이드바 (레벨 설명 및 버튼 정렬 복구) ---
+# --- 5. 사이드바 (디자인 유지) ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
-    
-    # [복구] 레벨 선택 시 하단 설명 상시 노출
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()))
     st.info(f"💡 {LEVEL_GUIDELINES[selected_level]}")
     
     st.subheader("2. JD (채용공고)")
     tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
     with tab1:
-        url_input = st.text_input("URL 입력")
+        url_input = st.text_input("나인하이어 공고 URL 입력")
         jd_from_url = fetch_jd(url_input) if url_input else ""
     with tab2:
         jd_from_text = st.text_area("내용 붙여넣기", height=150)
@@ -115,10 +112,9 @@ with st.sidebar:
     resume_file = st.file_uploader("PDF 업로드", type="pdf")
     
     st.divider()
-    # [수정] 버튼 세로 늘어짐 방지
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
         if resume_file and jd_final_content:
-            with st.spinner("바레이저 질문 설계 중..."):
+            with st.spinner("질문 설계 중..."):
                 for cat in ["Transform", "Tomorrow", "Together"]:
                     st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final_content)
         else: st.error("이력서와 JD를 모두 확인해주세요.")
@@ -127,7 +123,6 @@ with st.sidebar:
 st.title("✈️ Bar Raiser Copilot")
 st.divider()
 
-# 와이드 모드 제어
 if st.session_state.wide_mode:
     col_q_ratio, col_n_ratio = 10, 0.01
     toggle_label = "🔙 면접관 노트 다시 열기"
@@ -146,11 +141,11 @@ with col_q:
 
     for cat in ["Transform", "Tomorrow", "Together"]:
         with st.expander(f"📌 {cat} 리스트", expanded=True):
-            # [수정] 새로고침 버튼 위치 (우측 상단 파란색 위치)
-            head_col, btn_col = st.columns([0.94, 0.06])
-            head_col.markdown(f"<small style='color:gray;'>{BAR_RAISER_CRITERIA[cat]}</small>", unsafe_allow_html=True)
+            # [수정 사항] 새로고침 버튼을 컬럼 내 중앙에 배치
+            h_col, btn_col = st.columns([0.92, 0.08])
+            h_col.markdown(f"<small style='color:gray;'>{BAR_RAISER_CRITERIA[cat]}</small>", unsafe_allow_html=True)
             with btn_col:
-                st.markdown('<div class="icon-btn">', unsafe_allow_html=True)
+                st.markdown('<div class="centered-btn">', unsafe_allow_html=True)
                 if st.button("🔄", key=f"ref_{cat}"):
                     if resume_file and jd_final_content:
                         st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final_content)
@@ -159,11 +154,11 @@ with col_q:
             
             st.divider()
             for i, q in enumerate(st.session_state.ai_questions[cat]):
-                # [수정] + 버튼과 질문의 수평 균형 보정
-                qc, ac = st.columns([0.94, 0.06])
+                # ➕ 버튼 중앙 정렬 보정
+                qc, ac = st.columns([0.92, 0.08])
                 qc.markdown(f"<div class='q-text'>Q. {q['q']}</div>", unsafe_allow_html=True)
                 with ac:
-                    st.markdown('<div class="icon-btn">', unsafe_allow_html=True)
+                    st.markdown('<div class="centered-btn">', unsafe_allow_html=True)
                     if st.button("➕", key=f"add_{cat}_{i}"):
                         if q['q'] not in [sq['q'] for sq in st.session_state.selected_questions]:
                             st.session_state.selected_questions.append({"q": q['q'], "cat": cat, "memo": ""})
@@ -180,21 +175,19 @@ if not st.session_state.wide_mode:
         
         st.divider()
         for idx, item in enumerate(st.session_state.selected_questions):
-            # 헤더와 삭제 버튼 균형
-            tag_col, del_col = st.columns([0.94, 0.06])
-            with tag_col:
-                st.markdown(f"<span style='font-size:0.8rem; color:gray;'>Q{idx+1}</span> <span style='background-color:#f0f2f6; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>{item.get('cat','Custom')}</span>", unsafe_allow_html=True)
+            # ✕ 버튼 중앙 정렬 보정
+            tag_col, del_col = st.columns([0.92, 0.08])
+            tag_col.markdown(f"<span style='font-size:0.8rem; color:gray;'>Q{idx+1}</span> <span style='background-color:#f0f2f6; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>{item.get('cat','Custom')}</span>", unsafe_allow_html=True)
             with del_col:
-                st.markdown('<div class="icon-btn">', unsafe_allow_html=True)
+                st.markdown('<div class="centered-btn">', unsafe_allow_html=True)
                 if st.button("✕", key=f"del_{idx}"):
                     st.session_state.selected_questions.pop(idx)
                     st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
             
-            # 질문 및 메모창 가시성 확보 (스크롤 없이 보이게)
             q_text = item['q']
             q_height = max(80, (len(q_text) // 35) * 25 + 30)
-            st.session_state.selected_questions[idx]['q'] = st.text_area(f"q_{idx}", value=q_text, label_visibility="collapsed", height=q_height, key=f"area_q_{idx}", placeholder="질문을 입력하세요.")
+            st.session_state.selected_questions[idx]['q'] = st.text_area(f"q_{idx}", value=q_text, label_visibility="collapsed", height=q_height, key=f"area_q_{idx}")
             st.session_state.selected_questions[idx]['memo'] = st.text_area(f"m_{idx}", value=item.get('memo',''), placeholder="답변 메모...", label_visibility="collapsed", height=150, key=f"area_m_{idx}")
             st.markdown("<div style='margin-bottom:15px; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
 
