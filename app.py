@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import requests
 from bs4 import BeautifulSoup
+import time
 
 # --- 1. 페이지 설정 ---
 st.set_page_config(
@@ -19,8 +20,6 @@ except:
     st.stop()
 
 # --- 3. 함수 정의 ---
-
-# JD URL 크롤링 함수
 def fetch_jd_content(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -33,12 +32,18 @@ def fetch_jd_content(url):
     except:
         return None
 
-# AI 분석 함수 (핵심 변경: 파일을 통째로 넘김)
 def get_ai_response(level, track, jd_text, resume_file):
-    # 이미지/문서를 잘 읽는 'Gemini 1.5 Flash' 모델 사용
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # [핵심] 최신 라이브러리에서 작동하는 모델명 지정
+    # 만약 Flash가 안되면 'gemini-1.5-pro'로 자동 변경하도록 유도할 수도 있음
+    model_name = 'gemini-1.5-flash' 
     
-    # 프롬프트 (명령어)
+    try:
+        model = genai.GenerativeModel(model_name)
+    except:
+        # Flash 모델을 못 찾으면 Pro 모델로 재시도 (안전장치)
+        st.warning("⚠️ Flash 모델 로딩 실패, Pro 모델로 전환합니다.")
+        model = genai.GenerativeModel('gemini-1.5-pro')
+
     prompt_text = f"""
     당신은 '바레이저(Bar Raiser)' 면접관입니다.
     함께 제공된 [이력서 파일]과 아래 [JD 내용]을 분석하여 면접 질문 20개를 생성하세요.
@@ -55,19 +60,17 @@ def get_ai_response(level, track, jd_text, resume_file):
     5. 각 질문 밑에 '> 💡 평가 가이드'를 꼭 달아주세요.
     """
     
-    # 이력서 파일을 제미나이가 읽을 수 있는 형태로 변환
+    # 파일 데이터 처리
     resume_data = {
         "mime_type": "application/pdf",
         "data": resume_file.getvalue()
     }
     
-    # 프롬프트와 파일을 리스트로 묶어서 전송 (이게 핵심!)
     response = model.generate_content([prompt_text, resume_data])
     return response.text
 
-# --- 4. 화면 구성 (UI) ---
-st.title("🧐 바레이저 면접 질문 생성기 (이미지 인식 버전)")
-st.markdown("이제 **스캔한 이미지 이력서**도 읽을 수 있습니다! 📸")
+# --- 4. 화면 구성 ---
+st.title("🧐 바레이저 면접 질문 생성기 (Final)")
 
 with st.sidebar:
     st.header("1. 기본 정보")
@@ -86,27 +89,26 @@ with st.sidebar:
                 st.success(f"✅ 가져오기 성공!")
                 jd_content = fetched
             else:
-                st.warning("⚠️ 보안이 강한 사이트입니다. '텍스트 붙여넣기'를 써주세요.")
+                st.warning("⚠️ 내용을 가져오지 못했습니다. 직접 붙여넣기를 이용해주세요.")
     else:
         jd_content = st.text_area("JD 내용 복사/붙여넣기", height=150)
 
     st.header("3. 이력서 (PDF)")
-    resume_file = st.file_uploader("PDF 업로드 (이미지도 OK)", type="pdf")
+    resume_file = st.file_uploader("PDF 업로드 (이미지/스캔본 가능)", type="pdf")
     
     btn = st.button("질문 생성하기 ✨", type="primary", use_container_width=True)
 
-# 메인 실행 로직
 if btn:
     if not jd_content:
         st.warning("👈 JD 내용을 입력해주세요.")
     elif not resume_file:
         st.warning("👈 이력서 파일을 업로드해주세요.")
     else:
-        with st.spinner("AI가 이력서(이미지 포함)를 읽고 분석 중입니다..."):
+        with st.spinner("AI가 이력서를 분석 중입니다... (최대 30초 소요)"):
             try:
                 result = get_ai_response(level, track, jd_content, resume_file)
                 st.success("분석 완료!")
                 st.markdown(result)
             except Exception as e:
-                st.error(f"오류가 발생했습니다: {e}")
-                st.info("혹시 파일이 너무 크거나(20MB 이상), 암호가 걸려있지 않나요?")
+                st.error(f"오류 발생: {e}")
+                st.info("팁: 잠시 후 다시 시도해보세요.")
