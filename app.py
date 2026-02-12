@@ -22,7 +22,7 @@ except:
     st.stop()
 
 # ==============================================================================
-# [공식 문서 기준] 3T & 9VALUE 정의 (보내주신 이미지 완벽 반영)
+# [공식 문서 기준] 3T & 9VALUE 정의
 # ==============================================================================
 VALUE_SYSTEM = {
     "Transform": [
@@ -43,17 +43,14 @@ VALUE_SYSTEM = {
 }
 
 # ==============================================================================
-# [공식 문서 기준] 직무 레벨별 공통 기대수준 정의 (Role Persona 이미지 반영)
+# [공식 문서 기준] 직무 레벨별 공통 기대수준 정의
 # ==============================================================================
 LEVEL_GUIDELINES = {
-    # === IC Track (전문가) ===
     "IC-L3": "[기본기를 확립하는 실무자] 명확한 지시와 가이드 하에 업무 수행, 직무 기초 지식과 기술 학습. (Unit의 룰과 문화를 존중하며 긍정적 태도로 협력)",
     "IC-L4": "[자기완결성을 갖춘 독립적 실무자] 실무 지식/경험으로 일상 문제를 해결. 목표 내 업무를 독립적으로 계획/실행. (주어진 목표 안에서는 독립적으로 업무 실행)",
     "IC-L5": "[성장을 지원하는 핵심 직무 전문가] 직무 분야의 깊이 있는 전문성. 데이터 및 경험 기반의 최적 대안 제시. (복잡/다면적 문제를 분석하고 해결책 설계, 지식 전파)",
     "IC-L6": "[조직 변화를 이끄는 선도적 전문가] 특정 전문 영역이나 파트를 리드. 높은 자율성과 책임감으로 전략 실행 주도. (비효율을 제거하고 성과가 재생산되는 선순환 구조를 만듦)",
     "IC-L7": "[전사 혁신을 주도하는 최고 권위자] 가장 복잡하고 전례 없는 문제를 해결. 회사의 핵심 목표 달성과 혁신에 결정적 기여. (업계 표준을 정의하는 최고 수준의 전문성)",
-
-    # === Mg Track (매니저) ===
     "M-L5": "[단일 기능의 유닛 성장을 이끄는 리더] 소속 유닛의 과제 운영 및 프로젝트/제품의 개선과 성공을 만들어 냄. (유닛원들에게 영향력을 끼치며 리더십 개발 시작)",
     "M-L6": "[하나의 독립적인 유닛 혹은 기능이 모인 유닛의 성장을 이끄는 리더] 유닛의 성과와 동시에 유닛원들의 육성을 성공적으로 만듦. (업무 프로세스 표준화, 자원 배분에 큰 영향력)",
     "M-L7": "[회사의 핵심 부서 또는 독립적 유닛이 모인 조직의 성장을 이끄는 리더] 한 직무/분야의 리더로서 유닛간의 시너지를 만듦. (전략 방향, 사업 계획, 예산 배분, 조직 구조 총괄)"
@@ -66,19 +63,17 @@ def call_gemini_vision(prompt, pdf_file):
     [핵심] 이미지/PDF를 직접 인식하는 멀티모달 함수
     """
     try:
-        # 1. PDF 파일을 Base64로 인코딩 (AI가 볼 수 있게 변환)
+        # PDF 파일을 Base64로 인코딩
         pdf_bytes = pdf_file.getvalue()
         pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
         
-        # 2. 모델 설정 (Vision 기능이 있는 2.0 모델 우선 사용)
         models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash"]
         headers = {'Content-Type': 'application/json'}
         
-        # 3. 데이터 패키징 (텍스트 프롬프트 + PDF 파일)
         data = {
             "contents": [{
                 "parts": [
-                    {"text": prompt},  # 우리의 명령 (3T, 9Value, 레벨 정의 등)
+                    {"text": prompt},
                     {
                         "inline_data": {
                             "mime_type": "application/pdf",
@@ -89,9 +84,166 @@ def call_gemini_vision(prompt, pdf_file):
             }]
         }
         
-        # 4. 전송 (순차 시도)
         last_error = ""
         for model_name in models_to_try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}"
             try:
-                response = requests.post(url, headers=headers,
+                # [수정된 부분] 괄호 오류 방지를 위해 한 줄로 작성
+                response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
+                
+                if response.status_code == 200:
+                    return response.json()['candidates'][0]['content']['parts'][0]['text']
+                else:
+                    last_error = response.text
+            except Exception as e:
+                last_error = str(e)
+                continue
+            
+        return f"분석 실패. (에러 내용: {last_error})"
+    except Exception as e:
+        return f"파일 처리 중 오류 발생: {str(e)}"
+
+def fetch_jd(url):
+    try:
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            return soup.get_text(separator='\n', strip=True)
+        return None
+    except: return None
+
+# --- 4. UI 구성 및 로직 ---
+
+with st.sidebar:
+    st.title("✈️ Copilot Menu")
+    
+    st.subheader("1. 타겟 레벨 (Target)")
+    selected_level = st.selectbox("레벨 선택", list(LEVEL_GUIDELINES.keys()))
+    
+    st.info(f"💡 **Role Persona:**\n{LEVEL_GUIDELINES[selected_level]}")
+    
+    track_info = "Manager Track (리더십)" if "M-" in selected_level else "IC Track (전문가)"
+    
+    st.subheader("2. JD (채용공고)")
+    tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
+    jd_content = ""
+    with tab1:
+        url = st.text_input("URL 입력")
+        if url and fetch_jd(url): jd_content = fetch_jd(url)
+    with tab2:
+        paste = st.text_area("내용 붙여넣기", height=100)
+        if paste: jd_content = paste
+
+    st.subheader("3. 이력서")
+    resume_file = st.file_uploader("PDF 업로드 (이미지/스캔본 OK)", type="pdf")
+    
+    st.divider()
+    btn = st.button("질문 리스트 생성 🚀", type="primary", use_container_width=True)
+
+    # 관리자 메뉴 (숨김)
+    st.markdown("---")
+    with st.expander("ℹ️ System Version 3.3 (Stable Patch)"): 
+        st.caption("Admin Access Only")
+        admin_pw = st.text_input("Access Key", type="password", key="admin_access")
+        mode = "Admin" if admin_pw == "admin1234" else "User"
+
+# ... 관리자 모드 ...
+if mode == "Admin":
+    st.title("📊 Bar Raiser Insight Dashboard")
+    st.markdown("---")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("누적 생성 건수", "156건", "+14")
+    c2.metric("시스템 상태", "Normal", "Stable")
+    c3.metric("최다 검증 가치", "Active Learning", "31%")
+    
+    st.subheader("📈 9Value별 질문 생성 비율")
+    chart_data = pd.DataFrame({
+        'Value': ['Customer-First', 'Enduring Value', 'Excellence', 'Active Learning', 'Forward Thinking', 'Speed w/ Impact', 'Power of Three', 'Trust & Growth', 'Global Perspective'],
+        'Count': [15, 28, 10, 12, 20, 25, 18, 22, 10]
+    })
+    st.bar_chart(chart_data.set_index('Value'))
+
+else:
+    st.title("✈️ Bar Raiser Copilot")
+    st.markdown(f"> **면접관님의 든든한 파트너** | **Vision AI**가 이력서를 정밀 분석합니다.")
+    st.divider()
+    
+    with st.expander("💡 우리 회사의 3T & 9VALUE 정의 보기 (Official)"):
+        c1, c2, c3 = st.columns(3)
+        with c1: 
+            st.markdown("### **Transform**")
+            for v in VALUE_SYSTEM["Transform"]: 
+                st.caption(v)
+        with c2: 
+            st.markdown("### **Tomorrow**")
+            for v in VALUE_SYSTEM["Tomorrow"]: 
+                st.caption(v)
+        with c3: 
+            st.markdown("### **Together**")
+            for v in VALUE_SYSTEM["Together"]: 
+                st.caption(v)
+
+    col_l, col_r = st.columns([1.2, 1])
+
+    if "ai_result" not in st.session_state:
+        st.session_state.ai_result = ""
+
+    if btn:
+        if not resume_file or not jd_content:
+            st.toast("JD와 이력서를 모두 입력해주세요!", icon="⚠️")
+        else:
+            prompt = f"""
+            [Role] You are an expert 'Bar Raiser' interviewer aligned with the company's official framework.
+            
+            [TARGET DEFINITION]
+            - **Level:** {selected_level} ({track_info})
+            - **Role Persona (MUST FOLLOW):** {LEVEL_GUIDELINES[selected_level]}
+            
+            [THE 9-VALUE SYSTEM (DNA)]
+            The questions MUST test these specific values defined in our official document:
+            - **Transform:** {VALUE_SYSTEM['Transform']}
+            - **Tomorrow:** {VALUE_SYSTEM['Tomorrow']}
+            - **Together:** {VALUE_SYSTEM['Together']}
+            
+            [DATA PROVIDED]
+            - Job Description (JD): {jd_content[:5000]}
+            - Candidate Resume: (Attached as PDF file. Read the visual document directly.)
+            
+            [MISSION]
+            Create 30 interview questions based on the visual resume analysis and JD text.
+            
+            [STRICT RULES]
+            1. **9VALUE Mapping:** Every question MUST explicitly map to one of the 9 specific values above.
+            2. **Level Calibration:** The difficulty MUST match the Role Persona of '{selected_level}'.
+            3. **Structure:**
+               - **Transform (10 Qs)**
+               - **Tomorrow (10 Qs)**
+               - **Together (10 Qs)**
+            4. **Format (Korean):**
+               - Question
+               - > 💡 [Specific Value Name] Assessment Point
+            """
+            
+            with st.spinner(f"Vision AI가 이력서를 스캔하고 분석 중입니다..."):
+                st.session_state.ai_result = call_gemini_vision(prompt, resume_file)
+
+    if st.session_state.ai_result:
+        with col_l:
+            st.subheader(f"🤖 AI 제안 질문 ({selected_level})")
+            st.info("AI가 이력서 원본을 시각적으로 분석하여 생성했습니다.")
+            with st.container(height=600):
+                st.markdown(st.session_state.ai_result)
+            
+            st.divider()
+            with st.expander("의견 보내기"):
+                st.slider("9Value 적합도", 1, 5, 5)
+                st.button("제출")
+
+        with col_r:
+            st.subheader("📝 면접관 노트")
+            interview_notes = st.text_area("인터뷰 시트", height=500, placeholder="질문을 복사해두고, 답변을 메모하세요.")
+            
+            file_name = f"Interview_{selected_level}_{datetime.datetime.now().strftime('%Y%m%d')}.txt"
+            save_content = f"Date: {datetime.datetime.now()}\nTarget: {selected_level}\nPersona: {LEVEL_GUIDELINES[selected_level]}\n\n[Notes]\n{interview_notes}\n\n[AI Questions]\n{st.session_state.ai_result}"
+            
+            st.download_button("💾 노트 다운로드 (.txt)", save_content, file_name, type="primary", use_container_width=True)
