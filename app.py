@@ -21,7 +21,8 @@ if "ai_questions" not in st.session_state:
 if "selected_questions" not in st.session_state:
     st.session_state.selected_questions = []
 
-VALUE_SYSTEM = {
+# (프롬프트용 데이터 - 기존 유지)
+VALUE_SYSTEM_PROMPT = {
     "Transform": ["1. Customer-First Innovation", "2. Enduring Value Creation", "3. Excellence in Execution"],
     "Tomorrow": ["4. Active Learning", "5. Forward Thinking", "6. Speed with Impact"],
     "Together": ["7. Power of Three", "8. Trust & Growth", "9. Global Perspective"]
@@ -73,14 +74,12 @@ with st.sidebar:
     st.subheader("2. JD (채용공고)")
     tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
     
-    # [버그 수정] 각 입력값을 변수에 따로 담습니다.
     with tab1:
         url_input = st.text_input("URL 입력")
         jd_from_url = fetch_jd(url_input) if url_input else ""
     with tab2:
         jd_from_text = st.text_area("내용 붙여넣기", height=150)
 
-    # 둘 중 하나라도 있으면 jd_final_content에 담기
     jd_final_content = jd_from_text if jd_from_text else jd_from_url
 
     st.subheader("3. 이력서")
@@ -92,18 +91,39 @@ with st.sidebar:
 # --- 6. 메인 화면 UI ---
 st.title("✈️ Bar Raiser Copilot")
 
-# [디자인 복구] 3T 가이드를 다시 시원하게 펼쳐진 형태로 배치
-st.markdown("### 💡 바레이저 3T & 9VALUE 가이드")
-c_guid1, c_guid2, c_guid3 = st.columns(3)
-for i, (cat, values) in enumerate(VALUE_SYSTEM.items()):
-    with [c_guid1, c_guid2, c_guid3][i]:
-        st.info(f"**{cat}**")
-        for v in values:
-            st.caption(v)
+# [디자인 적용] Trinity Values 카드형 레이아웃
+st.markdown("<h2 style='text-align: center; margin-bottom: 30px;'>Trinity Values</h2>", unsafe_allow_html=True)
+
+# Card 1: Transform
+with st.container(border=True):
+    st.markdown("### **We TRANSFORM through :**")
+    st.markdown("""
+    - 💡 **Customer-First Innovation** | 모든 결정은 고객에게 미치는 영향을 가장 먼저 고려해 이뤄집니다.
+    - 📈 **Enduring Value Creation** | 시간이 지날수록 더 큰 가치를 만들어내는 솔루션을 구축합니다.
+    - 🎯 **Excellence in Execution** | 디지털 전환의 새로운 기준을 세웁니다.
+    """, unsafe_allow_html=True)
+
+# Card 2: Tomorrow
+with st.container(border=True):
+    st.markdown("### **We shape TOMORROW by :**")
+    st.markdown("""
+    - 🌱 **Active Learning** | 고객 접점에서 발생하는 모든 경험을 공동의 지식으로 전환합니다.
+    - 🚀 **Forward Thinking** | 미래를 고려해 확장성과 지속성을 갖춘 솔루션을 구축합니다.
+    - ⚡ **Speed with Impact** | 성과는 빠르게 달성하면서도 장기적인 가치를 쌓아갑니다.
+    """, unsafe_allow_html=True)
+
+# Card 3: Together
+with st.container(border=True):
+    st.markdown("### **We succeed TOGETHER through :**")
+    st.markdown("""
+    - 🤝 **Power of Three** | 고객, 파트너, 그리고 우리 팀이 하나로 연결됩니다.
+    - 💗 **Trust & Growth** | 서로의 발전을 지원하며 함께 성장합니다.
+    - 🌐 **Global Perspective** | 문화와 시장을 연결하는 가교 역할을 합니다.
+    """, unsafe_allow_html=True)
+
 st.divider()
 
 if main_btn:
-    # [검증 로직 수정] 이제 jd_final_content를 체크합니다.
     if resume_file and jd_final_content:
         with st.spinner("이력서와 JD를 정밀 분석 중입니다..."):
             for cat in ["Transform", "Tomorrow", "Together"]:
@@ -123,7 +143,8 @@ with col_q:
             head_col.markdown(f"**{cat} Candidates**")
             if btn_col.button("🔄", key=f"ref_{cat}"):
                 if resume_file and jd_final_content:
-                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final_content)
+                    with st.spinner(f"{cat} 갱신 중..."):
+                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final_content)
                     st.rerun()
             
             st.divider()
