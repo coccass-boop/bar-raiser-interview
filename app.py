@@ -3,10 +3,10 @@ import requests
 import json
 import base64
 import re
-import time  # [추가] API 속도 조절용
+import time
 from bs4 import BeautifulSoup
 
-# --- 1. 디자인 CSS (버튼 테두리 제거 적용) ---
+# --- 1. 디자인 CSS (선생님 확정안 100% 유지) ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
@@ -15,7 +15,7 @@ st.markdown("""
     [data-testid="column"] { min-width: 320px !important; }
     .stMarkdown p, .stSubheader { word-break: keep-all !important; }
 
-    /* [수정] 아이콘 버튼 테두리/배경 제거 (투명하게) */
+    /* 아이콘 버튼 테두리 제거 (깔끔하게) */
     .v-center {
         display: flex !important; align-items: center !important; justify-content: center !important;
         height: 100% !important; padding-top: 10px !important;
@@ -25,17 +25,16 @@ st.markdown("""
         background: transparent !important;
         box-shadow: none !important;
         padding: 0px !important;
+        height: 32px !important; width: 32px !important;
         color: #555 !important;
     }
-    .v-center button:hover {
-        color: #ff4b4b !important; /* 마우스 올리면 빨간색 */
-    }
+    .v-center button:hover { color: #ff4b4b !important; }
 
     /* 텍스트 가독성 */
     .q-block { margin-bottom: 15px !important; padding-bottom: 5px !important; }
     .q-text { font-size: 16px !important; font-weight: 600 !important; line-height: 1.6 !important; margin-bottom: 8px !important; }
 
-    /* 사이드바 및 초기화 버튼 */
+    /* 버튼 스타일 */
     [data-testid="stSidebar"] .stButton button { width: 100% !important; height: auto !important; }
     .reset-btn button { background-color: #ff4b4b !important; color: white !important; border: none !important; }
     </style>
@@ -67,7 +66,7 @@ LEVEL_GUIDELINES = {
     "M-L7": "[디렉터] 전략 방향 및 조직 시너시 총괄."
 }
 
-# --- 3. 핵심 함수 (선생님 코드 로직 유지) ---
+# --- 3. 핵심 함수 ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -82,14 +81,20 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     try:
         API_KEY = st.secrets["GEMINI_API_KEY"]
     except:
-        st.error("🚨 API 키가 설정되지 않았습니다.")
         return []
 
+    # [수정] JD 내용을 프롬프트에 명시적으로 포함 (질문 정확도 상승)
     prompt = f"""
-    [Role] Bar Raiser Interviewer. [Target] {level}. 
-    [Values] {BAR_RAISER_CRITERIA[category]}.
-    Analyze the Resume and JD. Create 10 Interview Questions in Korean.
-    [Format] Return ONLY a JSON array: [{{"q": "질문", "i": "의도"}}]
+    [Role] Bar Raiser Interviewer. 
+    [Target Level] {level} ({LEVEL_GUIDELINES[level]}).
+    [Core Value] {BAR_RAISER_CRITERIA[category]}.
+    
+    [Job Description Summary]
+    {jd_text[:2000]}
+    
+    Analyze the attached Resume against the JD above.
+    Create 10 Interview Questions in Korean focused on the Core Value.
+    [Format] Return ONLY a JSON array: [{{"q": "질문 내용", "i": "질문 의도"}}]
     """
 
     file_bytes = resume_file.getvalue()
@@ -97,7 +102,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     file_ext = resume_file.name.split('.')[-1].lower()
     mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
 
-    # 선생님이 성공하셨던 그 설정 그대로 (gemini-flash-latest + v1beta)
     try:
         target_model = "gemini-flash-latest"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
@@ -155,16 +159,14 @@ with st.sidebar:
     st.divider()
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
         if resume_file and jd_final:
-            with st.spinner("질문을 생성 중입니다... (API 과부하 방지 적용)"):
-                # [해결책] 순차적 호출 사이에 '지연 시간' 추가
-                
+            with st.spinner("JD와 이력서를 대조 분석 중입니다..."):
                 # 1. Transform
                 st.session_state.ai_questions["Transform"] = generate_questions_by_category("Transform", selected_level, resume_file, jd_final)
-                time.sleep(1.5) # [중요] 1.5초 휴식 (이게 없으면 뒤쪽이 막힘)
+                time.sleep(1.5) # API 과부하 방지 (필수)
                 
                 # 2. Tomorrow
                 st.session_state.ai_questions["Tomorrow"] = generate_questions_by_category("Tomorrow", selected_level, resume_file, jd_final)
-                time.sleep(1.5) # [중요] 1.5초 휴식
+                time.sleep(1.5) # API 과부하 방지 (필수)
                 
                 # 3. Together
                 st.session_state.ai_questions["Together"] = generate_questions_by_category("Together", selected_level, resume_file, jd_final)
