@@ -7,16 +7,15 @@ import time
 import gc
 from bs4 import BeautifulSoup
 
-# --- 1. 디자인 CSS (선생님 확정안: v18.0 기준) ---
+# --- 1. 디자인 CSS (선생님 확정안) ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
     <style>
-    /* 화면 깨짐 방지 */
     [data-testid="column"] { min-width: 320px !important; }
     .stMarkdown p, .stSubheader { word-break: keep-all !important; }
 
-    /* 아이콘 버튼 테두리 제거 (투명 버튼) */
+    /* 아이콘 버튼 테두리 제거 */
     .v-center {
         display: flex !important; align-items: center !important; justify-content: center !important;
         height: 100% !important; padding-top: 10px !important;
@@ -35,7 +34,7 @@ st.markdown("""
     [data-testid="stSidebar"] .stButton button { width: 100% !important; height: auto !important; }
     .reset-btn button { background-color: #ff4b4b !important; color: white !important; border: none !important; }
     
-    /* 보안 경고 박스 (v20 기능 유지) */
+    /* 보안 경고 박스 */
     .security-alert {
         background-color: #fff5f5; border: 1px solid #ff4b4b; border-radius: 5px;
         padding: 15px; font-size: 0.85rem; color: #d8000c; margin-bottom: 20px;
@@ -69,7 +68,7 @@ LEVEL_GUIDELINES = {
     "M-L7": "[디렉터] 전략 방향 및 조직 시너시 총괄."
 }
 
-# --- 3. 핵심 함수 (황금비율 로직) ---
+# --- 3. 핵심 함수 (가장 잘 되던 버전 복구) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -86,7 +85,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     except:
         return []
 
-    # [프롬프트] "이력서 보고 신입/경력 판단하라" (v18.0 유지)
+    # [프롬프트] 이력서 기반 레벨 판단 + 개인정보 보호 (v18.0 + v20.0)
     prompt = f"""
     [System Rule]
     You are a Bar Raiser Interviewer. Do NOT include PII (Name, Phone, etc).
@@ -110,51 +109,42 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     file_ext = resume_file.name.split('.')[-1].lower()
     mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
 
-    # [재시도 로직] 429 에러 방지용 (안전 제일)
-    max_retries = 3
-    # 대기 시간을 늘려서(5초, 8초, 10초) 확실하게 뚫습니다.
-    wait_times = [5, 8, 10]
-
-    for i in range(max_retries):
-        try:
-            target_model = "gemini-flash-latest"
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
-            headers = {'Content-Type': 'application/json'}
+    # [엔진 복구] 복잡한 loop 제거, 직관적인 requests 호출 (v16.0 방식)
+    try:
+        target_model = "gemini-flash-latest"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        
+        data = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}
+                ]
+            }],
+            "generationConfig": {"temperature": st.session_state.temp_setting}
+        }
+        
+        response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
+        
+        if response.status_code == 200:
+            raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+            else:
+                return []
+        else:
+            return []
             
-            data = {
-                "contents": [{
-                    "parts": [
-                        {"text": prompt},
-                        {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}
-                    ]
-                }],
-                "generationConfig": {"temperature": st.session_state.temp_setting}
-            }
-            
-            response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
-            
-            if response.status_code == 200:
-                raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-                json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group())
-            
-            # 실패 시 대기
-            time.sleep(wait_times[i])
-            continue
-            
-        except Exception:
-            time.sleep(wait_times[i])
-            continue
-    
-    return []
+    except Exception as e:
+        return []
 
 # --- 4. 화면 구성 ---
 
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     
-    # [보안] 1단계 경고
     st.markdown("""
     <div class="security-alert">
     🚨 <b>보안 주의사항</b><br>
@@ -183,29 +173,25 @@ with st.sidebar:
     
     st.divider()
     
-    # [보안] 2단계 동의
     agreement = st.checkbox("✅ 민감 정보가 없음을 확인했습니다.")
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agreement):
         if resume_file and jd_final:
-            with st.spinner("과부하 방지를 위해 천천히 생성합니다... (약 20초)"):
-                # [중요] 카테고리 사이 5초 휴식 (확실한 429 에러 방지)
+            with st.spinner("질문 리스트를 생성 중입니다..."):
+                # [복구] 심플하게 1.5초 간격 (가장 안정적이었던 설정)
                 st.session_state.ai_questions["Transform"] = generate_questions_by_category("Transform", selected_level, resume_file, jd_final)
-                time.sleep(5) 
+                time.sleep(1.5)
                 
                 st.session_state.ai_questions["Tomorrow"] = generate_questions_by_category("Tomorrow", selected_level, resume_file, jd_final)
-                time.sleep(5) 
+                time.sleep(1.5)
                 
                 st.session_state.ai_questions["Together"] = generate_questions_by_category("Together", selected_level, resume_file, jd_final)
             
-            # [보안] 3단계 메모리 청소
             gc.collect() 
             st.rerun()
         else: st.error("정보를 모두 입력해주세요.")
     
     st.divider()
-    
-    # [수정] 들여쓰기 오류 해결된 초기화 버튼
     st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
     if st.button("🗑️ 초기화", use_container_width=True):
         for key in list(st.session_state.keys()): del st.session_state[key]
@@ -244,7 +230,8 @@ def render_questions():
             st.divider()
             
             questions = st.session_state.ai_questions.get(cat, [])
-            if not questions: st.warning("질문 생성 실패 (트래픽 초과). 잠시 후 🔄 버튼을 눌러주세요.")
+            # 질문 실패 시 메시지 간소화
+            if not questions: st.warning("생성 실패. 잠시 후 🔄 버튼을 눌러주세요.")
             
             for i, q in enumerate(questions):
                 q_val = q.get('q', '')
