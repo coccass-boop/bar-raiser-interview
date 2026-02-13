@@ -21,12 +21,8 @@ st.markdown("""
         height: 100% !important; padding-top: 10px !important;
     }
     .v-center button {
-        border: none !important;
-        background: transparent !important;
-        box-shadow: none !important;
-        padding: 0px !important;
-        height: 32px !important; width: 32px !important;
-        color: #555 !important;
+        border: none !important; background: transparent !important; box-shadow: none !important;
+        padding: 0px !important; height: 32px !important; width: 32px !important; color: #555 !important;
     }
     .v-center button:hover { color: #ff4b4b !important; }
 
@@ -55,6 +51,7 @@ BAR_RAISER_CRITERIA = {
     "Together": "Trust & Growth"
 }
 
+# [기존 설정 유지] 선생님이 확정해주신 가이드라인 원복
 LEVEL_GUIDELINES = {
     "IC-L3": "[기본기 실무자] 가이드 하 업무 수행, 기초 지식 학습.",
     "IC-L4": "[자기완결 실무자] 목표 내 업무 독립적 계획/실행.",
@@ -83,7 +80,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     except:
         return []
 
-    # [수정] JD 내용을 프롬프트에 명시적으로 포함 (질문 정확도 상승)
+    # [수정된 프롬프트] "무조건 신입" 강제 설정 제거 -> "이력서 보고 판단하라"로 변경
     prompt = f"""
     [Role] Bar Raiser Interviewer. 
     [Target Level] {level} ({LEVEL_GUIDELINES[level]}).
@@ -92,8 +89,13 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     [Job Description Summary]
     {jd_text[:2000]}
     
-    Analyze the attached Resume against the JD above.
-    Create 10 Interview Questions in Korean focused on the Core Value.
+    [Task]
+    Analyze the attached Resume.
+    1. Determine if the candidate is a 'Fresh Graduate' (0 exp) or a 'Junior' (1-3 years exp).
+    2. If Fresh Graduate: Focus on potential, academic projects, and attitude.
+    3. If Junior: Focus on specific execution examples, adaptability, and basic problem-solving experiences.
+    
+    Create 10 Deep-dive Interview Questions in Korean based on your analysis.
     [Format] Return ONLY a JSON array: [{{"q": "질문 내용", "i": "질문 의도"}}]
     """
 
@@ -102,6 +104,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     file_ext = resume_file.name.split('.')[-1].lower()
     mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
 
+    # [엔진 유지] 선생님이 만족하셨던 v1beta + flash-latest 조합
     try:
         target_model = "gemini-flash-latest"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
@@ -132,7 +135,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     except Exception as e:
         return []
 
-# --- 4. 화면 구성 ---
+# --- 4. 화면 구성 (디자인 유지) ---
 
 # [사이드바]
 with st.sidebar:
@@ -159,14 +162,14 @@ with st.sidebar:
     st.divider()
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
         if resume_file and jd_final:
-            with st.spinner("JD와 이력서를 대조 분석 중입니다..."):
+            with st.spinner("이력서 경력 분석 및 질문 생성 중..."):
                 # 1. Transform
                 st.session_state.ai_questions["Transform"] = generate_questions_by_category("Transform", selected_level, resume_file, jd_final)
-                time.sleep(1.5) # API 과부하 방지 (필수)
+                time.sleep(1.5) # API 속도 조절 (필수)
                 
                 # 2. Tomorrow
                 st.session_state.ai_questions["Tomorrow"] = generate_questions_by_category("Tomorrow", selected_level, resume_file, jd_final)
-                time.sleep(1.5) # API 과부하 방지 (필수)
+                time.sleep(1.5) 
                 
                 # 3. Together
                 st.session_state.ai_questions["Together"] = generate_questions_by_category("Together", selected_level, resume_file, jd_final)
