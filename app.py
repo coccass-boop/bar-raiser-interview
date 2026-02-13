@@ -3,9 +3,10 @@ import requests
 import json
 import base64
 import re
+import time  # [추가] API 속도 조절용
 from bs4 import BeautifulSoup
 
-# --- 1. 디자인 CSS (선생님 확정안 100% 유지) ---
+# --- 1. 디자인 CSS (버튼 테두리 제거 적용) ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
@@ -14,18 +15,27 @@ st.markdown("""
     [data-testid="column"] { min-width: 320px !important; }
     .stMarkdown p, .stSubheader { word-break: keep-all !important; }
 
-    /* 아이콘 수직 중앙 정렬 (1px 오차 없음) */
+    /* [수정] 아이콘 버튼 테두리/배경 제거 (투명하게) */
     .v-center {
         display: flex !important; align-items: center !important; justify-content: center !important;
         height: 100% !important; padding-top: 10px !important;
     }
-    .v-center button { height: 32px !important; width: 32px !important; padding: 0px !important; }
+    .v-center button {
+        border: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        padding: 0px !important;
+        color: #555 !important;
+    }
+    .v-center button:hover {
+        color: #ff4b4b !important; /* 마우스 올리면 빨간색 */
+    }
 
     /* 텍스트 가독성 */
     .q-block { margin-bottom: 15px !important; padding-bottom: 5px !important; }
     .q-text { font-size: 16px !important; font-weight: 600 !important; line-height: 1.6 !important; margin-bottom: 8px !important; }
 
-    /* 버튼 스타일 */
+    /* 사이드바 및 초기화 버튼 */
     [data-testid="stSidebar"] .stButton button { width: 100% !important; height: auto !important; }
     .reset-btn button { background-color: #ff4b4b !important; color: white !important; border: none !important; }
     </style>
@@ -46,7 +56,6 @@ BAR_RAISER_CRITERIA = {
     "Together": "Trust & Growth"
 }
 
-# [유지] 레벨 가이드라인 8종
 LEVEL_GUIDELINES = {
     "IC-L3": "[기본기 실무자] 가이드 하 업무 수행, 기초 지식 학습.",
     "IC-L4": "[자기완결 실무자] 목표 내 업무 독립적 계획/실행.",
@@ -58,11 +67,9 @@ LEVEL_GUIDELINES = {
     "M-L7": "[디렉터] 전략 방향 및 조직 시너시 총괄."
 }
 
-# --- 3. 핵심 함수 (선생님이 주신 작동 코드 이식) ---
-
+# --- 3. 핵심 함수 (선생님 코드 로직 유지) ---
 def fetch_jd(url):
     try:
-        # User-Agent 추가하여 차단 방지
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
@@ -71,17 +78,13 @@ def fetch_jd(url):
             return text if len(text) > 50 else None
     except: return None
 
-# [핵심] 선생님이 제공해주신 'call_gemini_vision' 로직을 
-# 현재 앱의 데이터 구조(JSON 리스트)에 맞게 살짝 다듬어 이식했습니다.
 def generate_questions_by_category(category, level, resume_file, jd_text):
-    # 1. API 키 확인
     try:
         API_KEY = st.secrets["GEMINI_API_KEY"]
     except:
         st.error("🚨 API 키가 설정되지 않았습니다.")
         return []
 
-    # 2. 프롬프트 구성 (JSON 형식 요청만 유지)
     prompt = f"""
     [Role] Bar Raiser Interviewer. [Target] {level}. 
     [Values] {BAR_RAISER_CRITERIA[category]}.
@@ -89,15 +92,14 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     [Format] Return ONLY a JSON array: [{{"q": "질문", "i": "의도"}}]
     """
 
-    # 3. 파일 처리
     file_bytes = resume_file.getvalue()
     pdf_base64 = base64.b64encode(file_bytes).decode('utf-8')
     file_ext = resume_file.name.split('.')[-1].lower()
     mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
 
-    # 4. 선생님이 주신 '그 코드' 로직 (requests 직접 호출 + flash-latest)
+    # 선생님이 성공하셨던 그 설정 그대로 (gemini-flash-latest + v1beta)
     try:
-        target_model = "gemini-flash-latest" # 선생님 코드의 핵심
+        target_model = "gemini-flash-latest"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
         headers = {'Content-Type': 'application/json'}
         
@@ -111,27 +113,22 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
             "generationConfig": {"temperature": st.session_state.temp_setting}
         }
         
-        # requests.post 직접 사용 (선생님 코드 방식)
         response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
         
         if response.status_code == 200:
             raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-            # JSON 파싱 (마크다운 제거)
             json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
             else:
-                st.session_state.last_error = "JSON 파싱 실패: " + raw_text[:100]
                 return []
         else:
-            st.session_state.last_error = f"API 오류 ({response.status_code}): {response.text}"
             return []
             
     except Exception as e:
-        st.session_state.last_error = f"시스템 오류: {str(e)}"
         return []
 
-# --- 4. 화면 구성 (디자인 유지) ---
+# --- 4. 화면 구성 ---
 
 # [사이드바]
 with st.sidebar:
@@ -158,9 +155,20 @@ with st.sidebar:
     st.divider()
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True):
         if resume_file and jd_final:
-            with st.spinner("AI 엔진 가동 중..."):
-                for cat in ["Transform", "Tomorrow", "Together"]:
-                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
+            with st.spinner("질문을 생성 중입니다... (API 과부하 방지 적용)"):
+                # [해결책] 순차적 호출 사이에 '지연 시간' 추가
+                
+                # 1. Transform
+                st.session_state.ai_questions["Transform"] = generate_questions_by_category("Transform", selected_level, resume_file, jd_final)
+                time.sleep(1.5) # [중요] 1.5초 휴식 (이게 없으면 뒤쪽이 막힘)
+                
+                # 2. Tomorrow
+                st.session_state.ai_questions["Tomorrow"] = generate_questions_by_category("Tomorrow", selected_level, resume_file, jd_final)
+                time.sleep(1.5) # [중요] 1.5초 휴식
+                
+                # 3. Together
+                st.session_state.ai_questions["Together"] = generate_questions_by_category("Together", selected_level, resume_file, jd_final)
+                
             st.rerun()
         else: st.error("이력서와 JD를 모두 입력해주세요.")
 
@@ -173,12 +181,10 @@ with st.sidebar:
     
     with st.expander("⚙️"):
         st.session_state.temp_setting = st.slider("Temp", 0.0, 1.0, st.session_state.temp_setting)
-        if st.session_state.last_error: st.error(st.session_state.last_error)
 
 # [메인 타이틀]
 st.title("✈️ Bar Raiser Copilot")
 
-# [뷰 모드 버튼]
 c1, c2, c3 = st.columns(3)
 if c1.button("↔️ 질문 리스트만 보기", use_container_width=True): st.session_state.view_mode = "QuestionWide"; st.rerun()
 if c2.button("⬅️ 기본 보기 (반반)", use_container_width=True): st.session_state.view_mode = "Standard"; st.rerun()
@@ -206,7 +212,7 @@ def render_questions():
             st.divider()
             
             questions = st.session_state.ai_questions.get(cat, [])
-            if not questions: st.warning("질문 생성 실패. 다시 시도해주세요.")
+            if not questions: st.warning("생성 실패 (재시도 해주세요)")
             
             for i, q in enumerate(questions):
                 q_val = q.get('q', '')
