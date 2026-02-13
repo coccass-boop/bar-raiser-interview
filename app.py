@@ -165,7 +165,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력 (실명 대신 이니셜 추천)")
+    candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력")
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()))
     st.info(f"💡 {LEVEL_GUIDELINES[selected_level]}")
     
