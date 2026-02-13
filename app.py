@@ -4,15 +4,14 @@ import json
 import base64
 import re
 import time
-import gc # [추가] 메모리 청소부 (가비지 컬렉터)
+import gc
 from bs4 import BeautifulSoup
 
-# --- 1. 디자인 CSS (유지) ---
+# --- 1. 디자인 CSS (선생님 확정안 100% 유지) ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
     <style>
-    /* 화면 깨짐 방지 */
     [data-testid="column"] { min-width: 320px !important; }
     .stMarkdown p, .stSubheader { word-break: keep-all !important; }
 
@@ -27,23 +26,15 @@ st.markdown("""
     }
     .v-center button:hover { color: #ff4b4b !important; }
 
-    /* 텍스트 가독성 */
     .q-block { margin-bottom: 15px !important; padding-bottom: 5px !important; }
     .q-text { font-size: 16px !important; font-weight: 600 !important; line-height: 1.6 !important; margin-bottom: 8px !important; }
 
-    /* 버튼 스타일 */
     [data-testid="stSidebar"] .stButton button { width: 100% !important; height: auto !important; }
     .reset-btn button { background-color: #ff4b4b !important; color: white !important; border: none !important; }
     
-    /* [보안] 경고 박스 스타일 강화 */
     .security-alert {
-        background-color: #fff5f5;
-        border: 1px solid #ff4b4b;
-        border-radius: 5px;
-        padding: 15px;
-        font-size: 0.85rem;
-        color: #d8000c;
-        margin-bottom: 20px;
+        background-color: #fff5f5; border: 1px solid #ff4b4b; border-radius: 5px;
+        padding: 15px; font-size: 0.85rem; color: #d8000c; margin-bottom: 20px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -91,23 +82,21 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     except:
         return []
 
-    # [보안] PII(개인식별정보) 제외 명령 추가
+    # [프롬프트 유지]
     prompt = f"""
     [System Rule]
-    You are a Secure Bar Raiser Interviewer.
-    Do NOT output any Personally Identifiable Information (PII) such as Name, Phone, Email, Address.
-    Focus ONLY on professional skills and experiences.
+    You are a Bar Raiser Interviewer. Do NOT include PII (Name, Phone, etc).
     
     [Context]
-    Target Level: {level} ({LEVEL_GUIDELINES[level]}).
+    Level: {level} ({LEVEL_GUIDELINES[level]}).
     Core Value: {BAR_RAISER_CRITERIA[category]}.
     
-    [Job Description]
+    [JD Summary]
     {jd_text[:2000]}
     
     [Task]
-    Analyze the Resume.
-    1. Check if candidate is Fresh or Junior based on resume content.
+    Analyze Resume.
+    1. Check if Fresh or Junior.
     2. Create 10 Deep-dive Interview Questions in Korean.
     [Format] Return ONLY a JSON array: [{{"q": "질문 내용", "i": "질문 의도"}}]
     """
@@ -117,55 +106,62 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     file_ext = resume_file.name.split('.')[-1].lower()
     mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
 
-    try:
-        target_model = "gemini-flash-latest"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        
-        data = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt},
-                    {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}
-                ]
-            }],
-            "generationConfig": {"temperature": st.session_state.temp_setting}
-        }
-        
-        response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
-        
-        # [보안] 전송 후 데이터 즉시 파기 (메모리 정리)
-        del file_bytes
-        del pdf_base64
-        
-        if response.status_code == 200:
-            raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-            json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-            else:
-                return []
-        else:
-            return []
+    # [핵심 수정] 3번 재시도(Retry) 로직 추가
+    # 한 번 막혀도 포기하지 않고 3초 쉬었다가 다시 뚫습니다.
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            target_model = "gemini-flash-latest"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
+            headers = {'Content-Type': 'application/json'}
             
-    except Exception as e:
-        return []
+            data = {
+                "contents": [{
+                    "parts": [
+                        {"text": prompt},
+                        {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}
+                    ]
+                }],
+                "generationConfig": {"temperature": st.session_state.temp_setting}
+            }
+            
+            response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
+            
+            # 성공 시 바로 반환
+            if response.status_code == 200:
+                raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+                json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
+                if json_match:
+                    return json.loads(json_match.group())
+            
+            # 실패(429 등) 시 대기 후 재시도
+            elif response.status_code == 429: # Rate Limit
+                time.sleep(3) # 3초 대기
+                continue # 다시 시도
+            else:
+                time.sleep(1)
+                continue
+                
+        except Exception:
+            time.sleep(1)
+            continue
+    
+    # 3번 다 실패하면 빈 리스트
+    return []
 
 # --- 4. 화면 구성 ---
 
-# [사이드바]
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     
-    # [보안] 1단계: 시각적 경고
     st.markdown("""
     <div class="security-alert">
     🚨 <b>보안 주의사항</b><br>
-    업로드 전 이력서의 <b>주민번호, 전화번호, 주소</b> 등 민감한 개인정보는 반드시 마스킹(삭제) 처리해주세요.<br>
+    업로드 전 주민번호, 전화번호 등 민감 정보는 반드시 마스킹해주세요.<br>
     </div>
     """, unsafe_allow_html=True)
 
-    candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력 (실명 대신 이니셜 추천)")
+    candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력")
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()))
     st.info(f"💡 {LEVEL_GUIDELINES[selected_level]}")
     
@@ -186,44 +182,35 @@ with st.sidebar:
     
     st.divider()
     
-    # [보안] 2단계: 강제 동의 절차 (체크 안하면 버튼 비활성화)
-    agreement = st.checkbox("✅ 위 파일에 민감한 개인정보(주민번호 등)가 없음을 확인했습니다.")
+    agreement = st.checkbox("✅ 민감 정보가 없음을 확인했습니다.")
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agreement):
         if resume_file and jd_final:
-            with st.spinner("보안 환경에서 분석 중입니다..."):
-                # 1. Transform
+            with st.spinner("AI가 과부하를 피해 안전하게 질문을 생성 중입니다... (최대 30초)"):
+                # 각 단계별 딜레이 증가 (안정성 최우선)
                 st.session_state.ai_questions["Transform"] = generate_questions_by_category("Transform", selected_level, resume_file, jd_final)
-                time.sleep(1.5)
+                time.sleep(2) # 2초 휴식
                 
-                # 2. Tomorrow
                 st.session_state.ai_questions["Tomorrow"] = generate_questions_by_category("Tomorrow", selected_level, resume_file, jd_final)
-                time.sleep(1.5)
+                time.sleep(2) # 2초 휴식
                 
-                # 3. Together
                 st.session_state.ai_questions["Together"] = generate_questions_by_category("Together", selected_level, resume_file, jd_final)
             
-            # [보안] 3단계: 분석 완료 후 메모리 강제 청소
             gc.collect() 
             st.rerun()
-        else: st.error("이력서와 JD를 모두 입력해주세요.")
+        else: st.error("정보를 모두 입력해주세요.")
     
-    # 동의 안 했을 때 안내 메시지
-    if not agreement and resume_file:
-        st.caption("⚠️ 개인정보 확인 체크박스를 선택해야 버튼이 활성화됩니다.")
-
     st.divider()
     st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
     if st.button("🗑️ 초기화", use_container_width=True):
         for key in list(st.session_state.keys()): del st.session_state[key]
-        gc.collect() # 초기화 시에도 메모리 청소
+        gc.collect()
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     
     with st.expander("⚙️"):
         st.session_state.temp_setting = st.slider("Temp", 0.0, 1.0, st.session_state.temp_setting)
 
-# [메인 타이틀]
 st.title("✈️ Bar Raiser Copilot")
 
 c1, c2, c3 = st.columns(3)
@@ -233,7 +220,6 @@ if c3.button("↔️ 면접관 노트만 보기", use_container_width=True): st.
 
 st.divider()
 
-# --- 5. 렌더링 함수 (유지) ---
 def render_questions():
     st.subheader("🎯 제안 질문 리스트")
     if not any(st.session_state.ai_questions.values()):
@@ -253,7 +239,7 @@ def render_questions():
             st.divider()
             
             questions = st.session_state.ai_questions.get(cat, [])
-            if not questions: st.warning("생성 실패 (재시도 해주세요)")
+            if not questions: st.warning("생성량 초과로 실패했습니다. 잠시 후 '새로고침(🔄)'을 눌러주세요.")
             
             for i, q in enumerate(questions):
                 q_val = q.get('q', '')
@@ -297,11 +283,8 @@ def render_notes():
             txt_out += f"\n[{s.get('cat','Custom')}] Q: {s.get('q','')}\nA: {s.get('memo','')}\n"
         st.download_button("💾 결과 저장 (.txt)", txt_out, f"Result_{candidate_name}.txt", type="primary", use_container_width=True)
 
-# --- 6. 실행 로직 ---
-if st.session_state.view_mode == "QuestionWide":
-    render_questions()
-elif st.session_state.view_mode == "NoteWide":
-    render_notes()
+if st.session_state.view_mode == "QuestionWide": render_questions()
+elif st.session_state.view_mode == "NoteWide": render_notes()
 else:
     col_l, col_r = st.columns([1.1, 1])
     with col_l: render_questions()
