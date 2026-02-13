@@ -7,11 +7,12 @@ import time
 import gc
 from bs4 import BeautifulSoup
 
-# --- 1. 디자인 CSS (선생님 확정안) ---
+# --- 1. 디자인 CSS (선생님 확정안 100% 유지) ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
     <style>
+    /* 화면 깨짐 방지 */
     [data-testid="column"] { min-width: 320px !important; }
     .stMarkdown p, .stSubheader { word-break: keep-all !important; }
 
@@ -68,7 +69,7 @@ LEVEL_GUIDELINES = {
     "M-L7": "[디렉터] 전략 방향 및 조직 시너시 총괄."
 }
 
-# --- 3. 핵심 함수 (가장 잘 되던 버전 복구) ---
+# --- 3. 핵심 함수 (선생님이 주신 코드 로직 100% 이식) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -80,36 +81,35 @@ def fetch_jd(url):
     except: return None
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
+    # 1. API 키 확인
     try:
         API_KEY = st.secrets["GEMINI_API_KEY"]
     except:
         return []
 
-    # [프롬프트] 이력서 기반 레벨 판단 + 개인정보 보호 (v18.0 + v20.0)
+    # 2. 프롬프트 (보안/레벨판단 로직 + 선생님 코드의 구조 결합)
     prompt = f"""
-    [System Rule]
-    You are a Bar Raiser Interviewer. Do NOT include PII (Name, Phone, etc).
-    
-    [Context]
-    Level: {level} ({LEVEL_GUIDELINES[level]}).
-    Core Value: {BAR_RAISER_CRITERIA[category]}.
+    [Role] Bar Raiser Interviewer. 
+    [Security] Do NOT include PII (Name, Phone, etc).
+    [Target] {level} ({LEVEL_GUIDELINES[level]}).
+    [Value] {BAR_RAISER_CRITERIA[category]}.
     
     [JD Summary]
     {jd_text[:2000]}
     
     [Task]
-    Analyze Resume.
-    1. Determine if candidate is Fresh or Junior based on resume.
-    2. Create 10 Deep-dive Interview Questions in Korean.
-    [Format] Return ONLY a JSON array: [{{"q": "질문 내용", "i": "질문 의도"}}]
+    Analyze Resume. Determine if Fresh/Junior.
+    Create 10 Deep-dive Interview Questions in Korean.
+    [Format] Return ONLY a JSON array: [{{"q": "질문", "i": "의도"}}]
     """
 
+    # 3. 파일 처리
     file_bytes = resume_file.getvalue()
     pdf_base64 = base64.b64encode(file_bytes).decode('utf-8')
     file_ext = resume_file.name.split('.')[-1].lower()
     mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
 
-    # [엔진 복구] 복잡한 loop 제거, 직관적인 requests 호출 (v16.0 방식)
+    # 4. [중요] 선생님이 주신 'requests' 호출 방식 그대로 적용
     try:
         target_model = "gemini-flash-latest"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
@@ -125,10 +125,12 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
             "generationConfig": {"temperature": st.session_state.temp_setting}
         }
         
+        # requests.post 직접 사용 (선생님 코드 방식)
         response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
         
         if response.status_code == 200:
             raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+            # JSON 추출
             json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
@@ -137,7 +139,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
         else:
             return []
             
-    except Exception as e:
+    except Exception:
         return []
 
 # --- 4. 화면 구성 ---
@@ -145,6 +147,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     
+    # 보안 경고
     st.markdown("""
     <div class="security-alert">
     🚨 <b>보안 주의사항</b><br>
@@ -177,13 +180,14 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agreement):
         if resume_file and jd_final:
-            with st.spinner("질문 리스트를 생성 중입니다..."):
-                # [복구] 심플하게 1.5초 간격 (가장 안정적이었던 설정)
+            with st.spinner("질문을 생성 중입니다... (안정성을 위해 2초씩 대기합니다)"):
+                
+                # [선생님 코드 로직 실행] + [속도 제한 방지용 2초 딜레이]
                 st.session_state.ai_questions["Transform"] = generate_questions_by_category("Transform", selected_level, resume_file, jd_final)
-                time.sleep(1.5)
+                time.sleep(2) 
                 
                 st.session_state.ai_questions["Tomorrow"] = generate_questions_by_category("Tomorrow", selected_level, resume_file, jd_final)
-                time.sleep(1.5)
+                time.sleep(2) 
                 
                 st.session_state.ai_questions["Together"] = generate_questions_by_category("Together", selected_level, resume_file, jd_final)
             
@@ -230,8 +234,7 @@ def render_questions():
             st.divider()
             
             questions = st.session_state.ai_questions.get(cat, [])
-            # 질문 실패 시 메시지 간소화
-            if not questions: st.warning("생성 실패. 잠시 후 🔄 버튼을 눌러주세요.")
+            if not questions: st.warning("생성 실패 (잠시 후 새로고침 🔄)")
             
             for i, q in enumerate(questions):
                 q_val = q.get('q', '')
