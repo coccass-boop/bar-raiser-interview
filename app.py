@@ -12,10 +12,11 @@ st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="
 
 st.markdown("""
     <style>
+    /* 화면 깨짐 방지 */
     [data-testid="column"] { min-width: 320px !important; }
     .stMarkdown p, .stSubheader { word-break: keep-all !important; }
 
-    /* 아이콘 버튼 테두리 제거 */
+    /* 아이콘 버튼 테두리 제거 (투명 버튼) */
     .v-center {
         display: flex !important; align-items: center !important; justify-content: center !important;
         height: 100% !important; padding-top: 10px !important;
@@ -26,12 +27,15 @@ st.markdown("""
     }
     .v-center button:hover { color: #ff4b4b !important; }
 
+    /* 텍스트 가독성 */
     .q-block { margin-bottom: 15px !important; padding-bottom: 5px !important; }
     .q-text { font-size: 16px !important; font-weight: 600 !important; line-height: 1.6 !important; margin-bottom: 8px !important; }
 
+    /* 버튼 스타일 */
     [data-testid="stSidebar"] .stButton button { width: 100% !important; height: auto !important; }
     .reset-btn button { background-color: #ff4b4b !important; color: white !important; border: none !important; }
     
+    /* 보안 경고 박스 */
     .security-alert {
         background-color: #fff5f5; border: 1px solid #ff4b4b; border-radius: 5px;
         padding: 15px; font-size: 0.85rem; color: #d8000c; margin-bottom: 20px;
@@ -82,7 +86,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     except:
         return []
 
-    # [프롬프트 유지]
     prompt = f"""
     [System Rule]
     You are a Bar Raiser Interviewer. Do NOT include PII (Name, Phone, etc).
@@ -106,10 +109,11 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     file_ext = resume_file.name.split('.')[-1].lower()
     mime_type = "application/pdf" if file_ext == "pdf" else f"image/{file_ext.replace('jpg', 'jpeg')}"
 
-    # [핵심 수정] 3번 재시도(Retry) 로직 추가
-    # 한 번 막혀도 포기하지 않고 3초 쉬었다가 다시 뚫습니다.
-    max_retries = 3
-    for attempt in range(max_retries):
+    # [핵심 수정] 끈질긴 재시도 로직 (Exponential Backoff)
+    # 실패하면 5초 -> 8초 -> 10초 대기 후 다시 시도
+    wait_times = [5, 8, 10] 
+    
+    for wait in wait_times:
         try:
             target_model = "gemini-flash-latest"
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
@@ -127,26 +131,21 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
             
             response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
             
-            # 성공 시 바로 반환
             if response.status_code == 200:
                 raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
                 json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
                 if json_match:
                     return json.loads(json_match.group())
             
-            # 실패(429 등) 시 대기 후 재시도
-            elif response.status_code == 429: # Rate Limit
-                time.sleep(3) # 3초 대기
-                continue # 다시 시도
-            else:
-                time.sleep(1)
-                continue
-                
+            # 429 에러(Too Many Requests) 또는 기타 에러 시 대기 후 재시도
+            time.sleep(wait)
+            continue
+            
         except Exception:
-            time.sleep(1)
+            time.sleep(wait)
             continue
     
-    # 3번 다 실패하면 빈 리스트
+    # 모든 시도 실패 시 빈 리스트 반환
     return []
 
 # --- 4. 화면 구성 ---
@@ -186,13 +185,13 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agreement):
         if resume_file and jd_final:
-            with st.spinner("AI가 과부하를 피해 안전하게 질문을 생성 중입니다... (최대 30초)"):
-                # 각 단계별 딜레이 증가 (안정성 최우선)
+            with st.spinner("AI 서버 과부하를 피해 천천히 생성 중입니다... (약 15초 소요)"):
+                # [수정] 대기 시간 대폭 증가 (안전 제일)
                 st.session_state.ai_questions["Transform"] = generate_questions_by_category("Transform", selected_level, resume_file, jd_final)
-                time.sleep(2) # 2초 휴식
+                time.sleep(4) # 4초 대기
                 
                 st.session_state.ai_questions["Tomorrow"] = generate_questions_by_category("Tomorrow", selected_level, resume_file, jd_final)
-                time.sleep(2) # 2초 휴식
+                time.sleep(4) # 4초 대기
                 
                 st.session_state.ai_questions["Together"] = generate_questions_by_category("Together", selected_level, resume_file, jd_final)
             
@@ -203,89 +202,3 @@ with st.sidebar:
     st.divider()
     st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
     if st.button("🗑️ 초기화", use_container_width=True):
-        for key in list(st.session_state.keys()): del st.session_state[key]
-        gc.collect()
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    with st.expander("⚙️"):
-        st.session_state.temp_setting = st.slider("Temp", 0.0, 1.0, st.session_state.temp_setting)
-
-st.title("✈️ Bar Raiser Copilot")
-
-c1, c2, c3 = st.columns(3)
-if c1.button("↔️ 질문 리스트만 보기", use_container_width=True): st.session_state.view_mode = "QuestionWide"; st.rerun()
-if c2.button("⬅️ 기본 보기 (반반)", use_container_width=True): st.session_state.view_mode = "Standard"; st.rerun()
-if c3.button("↔️ 면접관 노트만 보기", use_container_width=True): st.session_state.view_mode = "NoteWide"; st.rerun()
-
-st.divider()
-
-def render_questions():
-    st.subheader("🎯 제안 질문 리스트")
-    if not any(st.session_state.ai_questions.values()):
-        st.info("👈 사이드바에서 [질문 생성 시작] 버튼을 눌러주세요.")
-        return
-
-    for cat in ["Transform", "Tomorrow", "Together"]:
-        with st.expander(f"📌 {cat}({BAR_RAISER_CRITERIA[cat]}) 리스트", expanded=True):
-            col_head, col_btn = st.columns([0.94, 0.06])
-            with col_btn:
-                st.markdown('<div class="v-center">', unsafe_allow_html=True)
-                if st.button("🔄", key=f"ref_{cat}"):
-                    if resume_file and jd_final:
-                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final)
-                        st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-            st.divider()
-            
-            questions = st.session_state.ai_questions.get(cat, [])
-            if not questions: st.warning("생성량 초과로 실패했습니다. 잠시 후 '새로고침(🔄)'을 눌러주세요.")
-            
-            for i, q in enumerate(questions):
-                q_val = q.get('q', '')
-                i_val = q.get('i', '')
-                qc, ac = st.columns([0.94, 0.06])
-                with qc:
-                    st.markdown(f"<div class='q-block'><div class='q-text'>Q. {q_val}</div><div style='color:gray; font-size:0.85rem;'>🎯 의도: {i_val}</div></div>", unsafe_allow_html=True)
-                with ac:
-                    st.markdown('<div class="v-center">', unsafe_allow_html=True)
-                    if st.button("➕", key=f"add_{cat}_{i}"):
-                        if q_val and q_val not in [sq['q'] for sq in st.session_state.selected_questions]:
-                            st.session_state.selected_questions.append({"q": q_val, "cat": cat, "memo": ""})
-                    st.markdown('</div>', unsafe_allow_html=True)
-                st.divider()
-
-def render_notes():
-    st.subheader("📝 면접관 노트")
-    if st.button("➕ 질문 직접 입력", use_container_width=True):
-        st.session_state.selected_questions.append({"q": "", "cat": "Custom", "memo": ""})
-    
-    st.divider()
-    for idx, item in enumerate(st.session_state.selected_questions):
-        t_col, d_col = st.columns([0.94, 0.06])
-        with t_col:
-            st.markdown(f"<span style='font-size:0.8rem; color:gray;'>Q{idx+1}</span> <span style='background-color:#f0f2f6; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>{item.get('cat','Custom')}</span>", unsafe_allow_html=True)
-        with d_col:
-            st.markdown('<div class="v-center">', unsafe_allow_html=True)
-            if st.button("✕", key=f"del_{idx}"):
-                st.session_state.selected_questions.pop(idx); st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-        
-        q_v = item.get('q','')
-        q_h = max(80, (len(q_v) // 35) * 25 + 35)
-        st.session_state.selected_questions[idx]['q'] = st.text_area(f"qn_{idx}", value=q_v, label_visibility="collapsed", height=q_h, key=f"aq_{idx}")
-        st.session_state.selected_questions[idx]['memo'] = st.text_area(f"mn_{idx}", value=item.get('memo',''), placeholder="메모...", label_visibility="collapsed", height=150, key=f"am_{idx}")
-        st.markdown("<div style='margin-bottom:15px; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
-
-    if st.session_state.selected_questions:
-        txt_out = f"후보자: {candidate_name}\n"
-        for s in st.session_state.selected_questions:
-            txt_out += f"\n[{s.get('cat','Custom')}] Q: {s.get('q','')}\nA: {s.get('memo','')}\n"
-        st.download_button("💾 결과 저장 (.txt)", txt_out, f"Result_{candidate_name}.txt", type="primary", use_container_width=True)
-
-if st.session_state.view_mode == "QuestionWide": render_questions()
-elif st.session_state.view_mode == "NoteWide": render_notes()
-else:
-    col_l, col_r = st.columns([1.1, 1])
-    with col_l: render_questions()
-    with col_r: render_notes()
