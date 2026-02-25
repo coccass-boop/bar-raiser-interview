@@ -92,16 +92,15 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     
-    # [수정된 부분] API 키 입력칸 + 안내 가이드 아코디언 메뉴
     st.markdown("🔑 **나만의 API 키 사용**")
     user_key = st.text_input("개인 API 키를 입력하면 대기 없이 빠릅니다.", type="password", help="키는 서버에 저장되지 않고 새로고침 시 즉시 사라집니다.")
     
+    # [제이 수정 완료] 가이드라인 문구 반영
     with st.expander("💡 API 키 무료 발급 방법 (1분 소요)"):
         st.markdown("""
         1. [Google AI Studio](https://aistudio.google.com/app/apikey) 에 접속 (구글 로그인)
-        2. 화면 중앙의 파란색 **'Create API key'** 버튼 클릭
-        3. 생성된 키(`AIzaSy...` 로 시작)를 복사해서 위 칸에 붙여넣기
-        *※ 결제 카드 등록 없이 완전 무료로 발급 가능합니다.*
+        2. 화면 중앙의 파란색 **'Create API key(API 키 만들기)'** 버튼 클릭
+        3. 생성된 키(`AIzaSy...` 로 시작) 옆의 **복사 아이콘(📋)**을 클릭해 위 칸에 붙여넣기
         """)
         
     st.markdown('<div class="security-alert">🚨 <b>보안 주의사항</b><br>민감 정보는 마스킹 후 업로드하세요.</div>', unsafe_allow_html=True)
