@@ -42,12 +42,23 @@ def load_auth_data():
     try:
         fresh_url = f"{AUTH_URL}&_={int(time.time())}"
         df = pd.read_csv(fresh_url, dtype=str)
-        
         df = df.fillna("")
         
-        # [핵심 복구] 숫자 형식으로 바꿨을 때 몰래 붙는 쉼표(,)와 소수점(.00)을 무자비하게 날려버립니다!
-        codes = df['면접관 코드(그룹입사일)'].str.replace(',', '', regex=False).str.replace(r'\.0*$', '', regex=True).str.strip()
-        names = df['면접관 성명'].str.strip()
+        # [핵심] 제목(Header) 공백 제거 및 눈치껏 열 찾기 로직
+        df.columns = df.columns.astype(str).str.strip()
+        
+        # '코드'나 '입사일'이 들어간 열을 비밀번호 열로 지정
+        code_col = next((c for c in df.columns if '코드' in c or '입사일' in c), None)
+        # '성명'이나 '이름'이 들어간 열을 이름 열로 지정
+        name_col = next((c for c in df.columns if '성명' in c or '이름' in c or '면접관' in c and c != code_col), None)
+        
+        if not code_col or not name_col:
+            st.error(f"시트 첫 줄에서 '코드'와 '성명' 기둥을 못 찾았습니다. 현재 시트 제목들: {list(df.columns)}")
+            return {}
+
+        # 쉼표(,), 소수점(.00) 무자비하게 날려버리기
+        codes = df[code_col].str.replace(',', '', regex=False).str.replace(r'\.0*$', '', regex=True).str.strip()
+        names = df[name_col].str.strip()
         
         valid_dict = {}
         for c, n in zip(codes, names):
