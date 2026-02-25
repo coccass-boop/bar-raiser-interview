@@ -95,8 +95,8 @@ with st.sidebar:
     st.markdown("🔑 **나만의 API 키 사용**")
     user_key = st.text_input("개인 API 키를 입력하면 대기 없이 빠릅니다.", type="password", help="키는 서버에 저장되지 않고 새로고침 시 즉시 사라집니다.")
     
-    # [제이 수정 완료] 가이드라인 문구 반영
-    with st.expander("💡 API 키 무료 발급 방법 (1분 소요)"):
+    # [제이 수정 완료] 수식어 쫙 빼고 담백하게 수정
+    with st.expander("💡 API 키 발급 방법"):
         st.markdown("""
         1. [Google AI Studio](https://aistudio.google.com/app/apikey) 에 접속 (구글 로그인)
         2. 화면 중앙의 파란색 **'Create API key(API 키 만들기)'** 버튼 클릭
