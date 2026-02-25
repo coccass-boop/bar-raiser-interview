@@ -42,11 +42,13 @@ AUTH_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:c
 def load_auth_data():
     try:
         df = pd.read_csv(AUTH_URL)
-        # 엑셀에서 숫자로 인식된 코드(예: 230109.0)를 깔끔한 문자로 변환합니다.
         codes = df['면접관 코드(그룹입사일)'].astype(str).str.replace(r'\.0$', '', regex=True)
         return pd.Series(df['면접관 성명'].values, index=codes.values).to_dict()
     except Exception as e:
-        st.error(f"시트 데이터를 불러오는 데 실패했습니다: {e}")
+        if "HTTP Error 401" in str(e):
+            st.error("🚨 구글 시트 접근 권한이 없습니다. 시트의 공유 설정을 '링크가 있는 모든 사용자 (뷰어)'로 변경해주세요.")
+        else:
+            st.error(f"시트 데이터를 불러오는 데 실패했습니다: {e}")
         return {}
 
 # --- 3. 데이터 초기화 ---
@@ -79,10 +81,21 @@ if not st.session_state.authenticated:
     
     col1, col2 = st.columns(2)
     with col1:
-        code_input = st.text_input("인증 코드 입력 (예: 230109)", type="password")
+        # [수정] 예시 문구 삭제
+        code_input = st.text_input("인증 코드 입력", type="password")
     with col2:
-        api_key_input = st.text_input("개인 API 키 (선택사항)", type="password", value=st.session_state.user_key)
+        # [수정] 안내 문구 변경 및 하단 가이드 추가
+        api_key_input = st.text_input("개인 API 키 (최초 1회 입력)", type="password", value=st.session_state.user_key)
+        st.markdown("""
+        <div style='font-size: 0.85rem; color: #555;'>
+        💡 <b>API 키 무료 발급 방법 (1분 소요)</b><br>
+        1. <a href='https://aistudio.google.com/app/apikey' target='_blank'>Google AI Studio</a> 접속 (구글 로그인)<br>
+        2. 화면의 <b>'Create API key'</b> 클릭 후 복사 아이콘(📋) 클릭<br>
+        3. 위 칸에 붙여넣기 (브라우저를 닫기 전까지 유지됩니다)
+        </div>
+        """, unsafe_allow_html=True)
     
+    st.write("") # 간격 띄우기
     if st.button("인증 및 입장", type="primary"):
         if code_input in valid_users:
             st.session_state.authenticated = True
@@ -90,11 +103,13 @@ if not st.session_state.authenticated:
             st.session_state.user_nickname = valid_users[code_input]
             st.session_state.user_key = api_key_input
             st.rerun()
+        elif not valid_users:
+            st.error("시트가 연결되지 않아 인증할 수 없습니다. 시트 공유 권한을 확인해주세요.")
         else:
             st.error("등록되지 않은 코드입니다. 시트에 코드가 정확히 추가되었는지 확인해주세요.")
-    st.stop() # 인증 안 되면 여기서 멈춤
+    st.stop()
 
-# --- 5. 핵심 기능 함수 (안정성 강화) ---
+# --- 5. 핵심 기능 함수 ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -116,7 +131,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
         pdf_base64 = base64.b64encode(file_bytes).decode('utf-8')
         mime_type = "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg"
         
-        # [수정] 모델 호출명을 조금 더 안정적인 최신 버전으로 업데이트했습니다.
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={final_api_key}"
         data = {"contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}]}]}
         
@@ -124,7 +138,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
             res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=60)
             if res.status_code == 200:
                 raw = res.json()['candidates'][0]['content']['parts'][0]['text']
-                # [수정] 마크다운 블록(```json)이 섞여 들어오는 경우를 대비해 정규식 강화
                 match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
                 return json.loads(match.group()) if match else [{"q": "JSON 추출 실패", "i": "재시도 해주세요."}]
             elif res.status_code in [429, 500, 503]:
@@ -141,9 +154,8 @@ with st.sidebar:
     st.title("✈️ Copilot Menu")
     st.success(f"👤 접속 완료: **{st.session_state.user_nickname}** 님")
     
-    with st.expander("💡 API 키 재설정 / 발급 안내"):
+    with st.expander("💡 개인 API 키 확인 및 변경"):
         st.session_state.user_key = st.text_input("API 키 입력", value=st.session_state.user_key, type="password")
-        st.markdown("1. [Google AI Studio](https://aistudio.google.com/app/apikey) 접속 (구글 로그인)\n2. **'Create API key'** 클릭 후 복사(📋)\n3. 위 칸에 붙여넣기")
         
     st.markdown('<div class="security-alert">🚨 <b>보안 주의사항</b><br>민감 정보는 마스킹 후 업로드하세요.</div>', unsafe_allow_html=True)
     candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력")
