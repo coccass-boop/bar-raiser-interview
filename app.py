@@ -31,8 +31,14 @@ st.markdown("""
         background-color: #fff5f5; border: 1px solid #ff4b4b; border-radius: 5px;
         padding: 15px; font-size: 0.85rem; color: #d8000c; margin-bottom: 20px;
     }
-    .logout-btn button { margin-top: 20px !important; color: #888 !important; border: 1px solid #ddd !important; background: transparent !important; }
-    .logout-btn button:hover { color: #ff4b4b !important; border-color: #ff4b4b !important; }
+    /* 작고 귀여운 로그아웃 버튼 디자인 */
+    [data-testid="stSidebar"] .logout-btn button { 
+        width: auto !important; height: auto !important; 
+        font-size: 11px !important; padding: 4px 10px !important; 
+        color: #999 !important; border: 1px solid #eee !important; 
+        background: transparent !important; float: right !important; margin-top: 40px !important;
+    }
+    [data-testid="stSidebar"] .logout-btn button:hover { color: #ff4b4b !important; border-color: #ff4b4b !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -43,7 +49,6 @@ AUTH_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:c
 def load_auth_data():
     try:
         fresh_url = f"{AUTH_URL}&_={int(time.time())}"
-        # keep_default_na=False 를 추가해 빈칸 때문에 데이터가 밀리는 현상 방지!
         df = pd.read_csv(fresh_url, dtype=str, keep_default_na=False)
         
         df.columns = df.columns.astype(str).str.strip()
@@ -55,9 +60,8 @@ def load_auth_data():
             st.error(f"시트 첫 줄에서 '코드'와 '성명' 기둥을 못 찾았습니다. 현재 시트 제목들: {list(df.columns)}")
             return {}
 
-        # [강력한 청소기] 모든 띄어쓰기(\s+), 쉼표(,), 소수점(.00)을 세포 단위까지 싹 파괴합니다!
         codes = df[code_col].str.replace(r'\s+', '', regex=True).str.replace(',', '', regex=False).str.replace(r'\.0*$', '', regex=True)
-        names = df[name_col].str.replace(r'\s+', '', regex=True) # 이름에 들어간 띄어쓰기도 무시!
+        names = df[name_col].str.replace(r'\s+', '', regex=True)
         
         valid_dict = {}
         for c, n in zip(codes, names):
@@ -102,7 +106,6 @@ if not st.session_state.authenticated:
     
     col1, col2 = st.columns(2)
     with col1:
-        # 입력값에서도 모든 공백 제거
         raw_code = st.text_input("인증 코드 입력", type="password")
         clean_code_input = re.sub(r'\s+', '', raw_code) 
     with col2:
@@ -130,7 +133,7 @@ if not st.session_state.authenticated:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 ---
+# --- 5. 핵심 기능 함수 (최신 모델 gemini-2.5-flash 탑재) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -152,7 +155,8 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
         pdf_base64 = base64.b64encode(file_bytes).decode('utf-8')
         mime_type = "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg"
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={final_api_key}"
+        # [수정 완료] 404 에러를 내뿜던 구버전 모델 대신 최신 2.5 flash 모델로 교체!
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={final_api_key}"
         data = {"contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}]}]}
         
         for attempt in range(3):
@@ -170,7 +174,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
         return [{"q": "시스템 오류 발생", "i": str(e)}]
     return []
 
-# --- 6. 화면 구성 (사이드바에 뒤로가기 버튼 추가) ---
+# --- 6. 화면 구성 ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     st.success(f"👤 접속 완료: **{st.session_state.user_nickname}** 님")
@@ -204,17 +208,18 @@ with st.sidebar:
         else:
             st.error("이력서와 JD를 모두 입력해주세요.")
 
+    # 미니 로그아웃 버튼 (사이드바 우측 하단 배치)
+    st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
+    if st.button("🚪 로그아웃", help="인증 화면으로 돌아갑니다"):
+        st.session_state.authenticated = False
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
     st.divider()
     if st.button("🗑️ 초기화", use_container_width=True):
         for k in ["ai_questions", "selected_questions"]: st.session_state[k] = {"Transform": [], "Tomorrow": [], "Together": []} if k=="ai_questions" else []
         st.rerun()
 
-    # [신규] 귀여운 뒤로가기(로그아웃) 버튼
-    st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
-    if st.button("🚪 로그아웃 (뒤로가기)", use_container_width=True):
-        st.session_state.authenticated = False
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 7. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
