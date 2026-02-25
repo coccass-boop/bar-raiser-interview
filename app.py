@@ -38,13 +38,17 @@ st.markdown("""
 SHEET_ID = "1c1lZRL0oOC95-YTrqMDpUaCGfbUk368yfYI-XlcJxYo"
 AUTH_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=%EB%A9%B4%EC%A0%91%EA%B4%80%20%EC%BD%94%EB%93%9C"
 
-# 실시간 반영을 위해 캐시(@st.cache_data)를 껐습니다.
+# 실시간 반영을 위해 캐시를 끄고 구글 서버 우회 로직을 적용했습니다.
 def load_auth_data():
     try:
-        df = pd.read_csv(AUTH_URL)
-        # 소수점(.0) 제거 및 양옆 공백 완벽 제거
-        codes = df['면접관 코드(그룹입사일)'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        # URL 끝에 난수(현재 시간)를 붙여 구글 시트의 캐시를 강제로 무효화!
+        fresh_url = f"{AUTH_URL}&_={int(time.time())}"
+        df = pd.read_csv(fresh_url)
+        
+        # 소수점(.0), 쉼표(,) 제거 및 양옆 띄어쓰기 완벽 제거
+        codes = df['면접관 코드(그룹입사일)'].astype(str).str.replace(r'\.0$', '', regex=True).str.replace(',', '', regex=False).str.strip()
         names = df['면접관 성명'].astype(str).str.strip()
+        
         return pd.Series(names.values, index=codes.values).to_dict()
     except Exception as e:
         if "HTTP Error 401" in str(e):
@@ -86,7 +90,6 @@ if not st.session_state.authenticated:
         # 입력된 값의 띄어쓰기를 자동으로 잘라냅니다 (.strip())
         code_input = st.text_input("인증 코드 입력", type="password").strip()
     with col2:
-        # 수식어 제거: "개인 API 키"로 통일
         api_key_input = st.text_input("개인 API 키", type="password", value=st.session_state.user_key).strip()
         st.markdown("""
         <div style='font-size: 0.85rem; color: #555;'>
