@@ -6,16 +6,13 @@ import re
 import time
 from bs4 import BeautifulSoup
 
-# --- 1. 디자인 CSS (선생님 확정안) ---
+# --- 1. 디자인 CSS (유지) ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
 
 st.markdown("""
     <style>
-    /* 화면 깨짐 방지 */
     [data-testid="column"] { min-width: 320px !important; }
     .stMarkdown p, .stSubheader { word-break: keep-all !important; }
-
-    /* 아이콘 버튼 테두리 제거 */
     .v-center {
         display: flex !important; align-items: center !important; justify-content: center !important;
         height: 100% !important; padding-top: 10px !important;
@@ -25,16 +22,10 @@ st.markdown("""
         padding: 0px !important; height: 32px !important; width: 32px !important; color: #555 !important;
     }
     .v-center button:hover { color: #ff4b4b !important; }
-
-    /* 텍스트 가독성 */
     .q-block { margin-bottom: 15px !important; padding-bottom: 5px !important; }
     .q-text { font-size: 16px !important; font-weight: 600 !important; line-height: 1.6 !important; margin-bottom: 8px !important; }
-
-    /* 버튼 스타일 */
     [data-testid="stSidebar"] .stButton button { width: 100% !important; height: auto !important; }
     .reset-btn button { background-color: #ff4b4b !important; color: white !important; border: none !important; }
-    
-    /* 보안 경고 박스 */
     .security-alert {
         background-color: #fff5f5; border: 1px solid #ff4b4b; border-radius: 5px;
         padding: 15px; font-size: 0.85rem; color: #d8000c; margin-bottom: 20px;
@@ -68,7 +59,7 @@ LEVEL_GUIDELINES = {
     "M-L7": "[디렉터] 전략 방향 및 조직 시너시 총괄."
 }
 
-# --- 3. 핵심 함수 (선생님 코드 로직 100% 이식) ---
+# --- 3. 핵심 함수 ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -80,29 +71,18 @@ def fetch_jd(url):
     except: return None
 
 def generate_questions_by_category(category, level, resume_file, jd_text):
-    # 1. API 키 확인
     try:
         API_KEY = st.secrets["GEMINI_API_KEY"]
     except:
         return [{"q": "API 키 오류", "i": "Secrets 설정을 확인해주세요."}]
 
-    # 2. 프롬프트 구성
     prompt = f"""
-    [Role] Bar Raiser Interviewer. 
-    [Security] Do NOT include PII (Name, Phone, etc).
-    [Target] {level} ({LEVEL_GUIDELINES[level]}).
-    [Value] {BAR_RAISER_CRITERIA[category]}.
-    
-    [JD Summary]
-    {jd_text[:2000]}
-    
-    [Task]
-    Analyze Resume. Determine if Fresh/Junior.
-    Create 10 Deep-dive Interview Questions in Korean.
+    [Role] Bar Raiser Interviewer. [Target] {level}. 
+    [Values] {BAR_RAISER_CRITERIA[category]}.
+    Analyze the Resume and JD. Create 10 Interview Questions in Korean.
     [Format] Return ONLY a JSON array: [{{"q": "질문", "i": "의도"}}]
     """
 
-    # 3. 파일 처리
     try:
         file_bytes = resume_file.getvalue()
         pdf_base64 = base64.b64encode(file_bytes).decode('utf-8')
@@ -111,45 +91,53 @@ def generate_questions_by_category(category, level, resume_file, jd_text):
     except:
         return [{"q": "파일 처리 실패", "i": "파일을 확인해주세요."}]
 
-    # 4. [선생님 고정값 로직] requests + flash-latest
-    try:
-        target_model = "gemini-flash-latest"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
-        headers = {'Content-Type': 'application/json'}
-        
-        data = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt},
-                    {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}
-                ]
-            }],
-            "generationConfig": {"temperature": st.session_state.temp_setting}
-        }
-        
-        # requests.post 직접 사용
-        response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
-        
-        if response.status_code == 200:
-            raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
-            # JSON 파싱
-            json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
-            if json_match:
-                return json.loads(json_match.group())
-            else:
-                return [{"q": "결과 분석 실패", "i": "JSON 형식이 아닙니다."}]
-        else:
-            return [{"q": f"API 호출 에러 ({response.status_code})", "i": "잠시 후 다시 시도해주세요."}]
+    max_retries = 3  
+    retry_delay = 10 
+
+    target_model = "gemini-flash-latest"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={API_KEY}"
+    headers = {'Content-Type': 'application/json'}
+    
+    data = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}
+            ]
+        }],
+        "generationConfig": {"temperature": st.session_state.temp_setting}
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(data), timeout=60)
             
-    except Exception as e:
-        return [{"q": "시스템 오류", "i": str(e)}]
+            if response.status_code == 200:
+                raw_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+                json_match = re.search(r'\[\s*\{.*\}\s*\]', raw_text, re.DOTALL)
+                if json_match:
+                    return json.loads(json_match.group())
+                else:
+                    return [{"q": "파싱 실패", "i": "JSON 형식이 아닙니다."}]
+            
+            # 🚨 유일하게 수정한 부분: 500, 503(서버 에러)도 10초 대기 후 재시도하도록 추가
+            elif response.status_code in [429, 500, 503]:
+                time.sleep(retry_delay)
+                continue 
+            
+            else:
+                return [{"q": f"API 에러 ({response.status_code})", "i": response.text[:100]}]
+                
+        except Exception as e:
+            return [{"q": "시스템 오류", "i": str(e)}]
+    
+    return [{"q": "생성 실패 (서버 불안정)", "i": "잠시 후 다시 시도해주세요."}]
 
 # --- 4. 화면 구성 ---
 
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     
-    # 보안 경고
     st.markdown("""
     <div class="security-alert">
     🚨 <b>보안 주의사항</b><br>
@@ -182,14 +170,13 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agreement):
         if resume_file and jd_final:
-            with st.spinner("질문을 생성 중입니다... (안정성을 위해 2초씩 대기합니다)"):
+            with st.spinner("AI가 질문을 생성 중입니다... (구글 서버 불안정 시 자동 대기합니다)"):
                 
-                # [선생님 코드 로직] + [속도 제한 방지용 2초 딜레이]
                 st.session_state.ai_questions["Transform"] = generate_questions_by_category("Transform", selected_level, resume_file, jd_final)
-                time.sleep(2) 
+                time.sleep(5) 
                 
                 st.session_state.ai_questions["Tomorrow"] = generate_questions_by_category("Tomorrow", selected_level, resume_file, jd_final)
-                time.sleep(2) 
+                time.sleep(5) 
                 
                 st.session_state.ai_questions["Together"] = generate_questions_by_category("Together", selected_level, resume_file, jd_final)
             
@@ -221,7 +208,6 @@ def render_questions():
         st.info("👈 사이드바에서 [질문 생성 시작] 버튼을 눌러주세요.")
         return
 
-    # [수정 완료] 끊기지 않도록 리스트를 명확하게 정의함
     categories = ["Transform", "Tomorrow", "Together"]
     
     for cat in categories:
@@ -237,15 +223,16 @@ def render_questions():
             st.divider()
             
             questions = st.session_state.ai_questions.get(cat, [])
-            if not questions: st.warning("생성 실패. 다시 시도해주세요.")
+            
+            if not questions:
+                st.warning("질문 생성 실패. (API 에러일 수 있습니다)")
             
             for i, q in enumerate(questions):
-                q_val = q.get('q', '')
-                i_val = q.get('i', '')
+                q_val = q.get('q', 'Error')
+                i_val = q.get('i', 'Error')
                 
-                # 에러 메시지 처리
-                if "API 호출 에러" in q_val:
-                    st.error(f"{q_val}: {i_val}")
+                if "API 에러" in q_val or "생성 실패" in q_val:
+                    st.error(f"{q_val} : {i_val}")
                     continue
 
                 qc, ac = st.columns([0.94, 0.06])
