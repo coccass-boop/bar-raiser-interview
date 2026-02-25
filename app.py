@@ -38,12 +38,14 @@ st.markdown("""
 SHEET_ID = "1c1lZRL0oOC95-YTrqMDpUaCGfbUk368yfYI-XlcJxYo"
 AUTH_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=%EB%A9%B4%EC%A0%91%EA%B4%80%20%EC%BD%94%EB%93%9C"
 
-@st.cache_data(ttl=60)
+# 실시간 반영을 위해 캐시(@st.cache_data)를 껐습니다.
 def load_auth_data():
     try:
         df = pd.read_csv(AUTH_URL)
-        codes = df['면접관 코드(그룹입사일)'].astype(str).str.replace(r'\.0$', '', regex=True)
-        return pd.Series(df['면접관 성명'].values, index=codes.values).to_dict()
+        # 소수점(.0) 제거 및 양옆 공백 완벽 제거
+        codes = df['면접관 코드(그룹입사일)'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        names = df['면접관 성명'].astype(str).str.strip()
+        return pd.Series(names.values, index=codes.values).to_dict()
     except Exception as e:
         if "HTTP Error 401" in str(e):
             st.error("🚨 구글 시트 접근 권한이 없습니다. 시트의 공유 설정을 '링크가 있는 모든 사용자 (뷰어)'로 변경해주세요.")
@@ -81,11 +83,11 @@ if not st.session_state.authenticated:
     
     col1, col2 = st.columns(2)
     with col1:
-        # [수정] 예시 문구 삭제
-        code_input = st.text_input("인증 코드 입력", type="password")
+        # 입력된 값의 띄어쓰기를 자동으로 잘라냅니다 (.strip())
+        code_input = st.text_input("인증 코드 입력", type="password").strip()
     with col2:
-        # [수정] 안내 문구 변경 및 하단 가이드 추가
-        api_key_input = st.text_input("개인 API 키", type="password", value=st.session_state.user_key)
+        # 수식어 제거: "개인 API 키"로 통일
+        api_key_input = st.text_input("개인 API 키", type="password", value=st.session_state.user_key).strip()
         st.markdown("""
         <div style='font-size: 0.85rem; color: #555;'>
         💡 <b>API 키 무료 발급 방법 (1분 소요)</b><br>
@@ -95,7 +97,7 @@ if not st.session_state.authenticated:
         </div>
         """, unsafe_allow_html=True)
     
-    st.write("") # 간격 띄우기
+    st.write("")
     if st.button("인증 및 입장", type="primary"):
         if code_input in valid_users:
             st.session_state.authenticated = True
