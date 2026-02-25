@@ -31,6 +31,8 @@ st.markdown("""
         background-color: #fff5f5; border: 1px solid #ff4b4b; border-radius: 5px;
         padding: 15px; font-size: 0.85rem; color: #d8000c; margin-bottom: 20px;
     }
+    .logout-btn button { margin-top: 20px !important; color: #888 !important; border: 1px solid #ddd !important; background: transparent !important; }
+    .logout-btn button:hover { color: #ff4b4b !important; border-color: #ff4b4b !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -41,24 +43,21 @@ AUTH_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:c
 def load_auth_data():
     try:
         fresh_url = f"{AUTH_URL}&_={int(time.time())}"
-        df = pd.read_csv(fresh_url, dtype=str)
-        df = df.fillna("")
+        # keep_default_na=False 를 추가해 빈칸 때문에 데이터가 밀리는 현상 방지!
+        df = pd.read_csv(fresh_url, dtype=str, keep_default_na=False)
         
-        # [핵심] 제목(Header) 공백 제거 및 눈치껏 열 찾기 로직
         df.columns = df.columns.astype(str).str.strip()
         
-        # '코드'나 '입사일'이 들어간 열을 비밀번호 열로 지정
         code_col = next((c for c in df.columns if '코드' in c or '입사일' in c), None)
-        # '성명'이나 '이름'이 들어간 열을 이름 열로 지정
         name_col = next((c for c in df.columns if '성명' in c or '이름' in c or '면접관' in c and c != code_col), None)
         
         if not code_col or not name_col:
             st.error(f"시트 첫 줄에서 '코드'와 '성명' 기둥을 못 찾았습니다. 현재 시트 제목들: {list(df.columns)}")
             return {}
 
-        # 쉼표(,), 소수점(.00) 무자비하게 날려버리기
-        codes = df[code_col].str.replace(',', '', regex=False).str.replace(r'\.0*$', '', regex=True).str.strip()
-        names = df[name_col].str.strip()
+        # [강력한 청소기] 모든 띄어쓰기(\s+), 쉼표(,), 소수점(.00)을 세포 단위까지 싹 파괴합니다!
+        codes = df[code_col].str.replace(r'\s+', '', regex=True).str.replace(',', '', regex=False).str.replace(r'\.0*$', '', regex=True)
+        names = df[name_col].str.replace(r'\s+', '', regex=True) # 이름에 들어간 띄어쓰기도 무시!
         
         valid_dict = {}
         for c, n in zip(codes, names):
@@ -103,7 +102,9 @@ if not st.session_state.authenticated:
     
     col1, col2 = st.columns(2)
     with col1:
-        code_input = st.text_input("인증 코드 입력", type="password").strip()
+        # 입력값에서도 모든 공백 제거
+        raw_code = st.text_input("인증 코드 입력", type="password")
+        clean_code_input = re.sub(r'\s+', '', raw_code) 
     with col2:
         api_key_input = st.text_input("개인 API 키", type="password", value=st.session_state.user_key).strip()
         st.markdown("""
@@ -117,10 +118,10 @@ if not st.session_state.authenticated:
     
     st.write("")
     if st.button("인증 및 입장", type="primary"):
-        if code_input in valid_users:
+        if clean_code_input in valid_users:
             st.session_state.authenticated = True
-            st.session_state.user_code = code_input
-            st.session_state.user_nickname = valid_users[code_input]
+            st.session_state.user_code = clean_code_input
+            st.session_state.user_nickname = valid_users[clean_code_input]
             st.session_state.user_key = api_key_input
             st.rerun()
         elif not valid_users:
@@ -169,7 +170,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
         return [{"q": "시스템 오류 발생", "i": str(e)}]
     return []
 
-# --- 6. 화면 구성 ---
+# --- 6. 화면 구성 (사이드바에 뒤로가기 버튼 추가) ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     st.success(f"👤 접속 완료: **{st.session_state.user_nickname}** 님")
@@ -207,6 +208,13 @@ with st.sidebar:
     if st.button("🗑️ 초기화", use_container_width=True):
         for k in ["ai_questions", "selected_questions"]: st.session_state[k] = {"Transform": [], "Tomorrow": [], "Together": []} if k=="ai_questions" else []
         st.rerun()
+
+    # [신규] 귀여운 뒤로가기(로그아웃) 버튼
+    st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
+    if st.button("🚪 로그아웃 (뒤로가기)", use_container_width=True):
+        st.session_state.authenticated = False
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 7. 메인 화면 ---
 st.title("✈️ Bar Raiser Copilot")
