@@ -38,18 +38,24 @@ st.markdown("""
 SHEET_ID = "1c1lZRL0oOC95-YTrqMDpUaCGfbUk368yfYI-XlcJxYo"
 AUTH_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=%EB%A9%B4%EC%A0%91%EA%B4%80%20%EC%BD%94%EB%93%9C"
 
-# 실시간 반영을 위해 캐시를 끄고 구글 서버 우회 로직을 적용했습니다.
 def load_auth_data():
     try:
-        # URL 끝에 난수(현재 시간)를 붙여 구글 시트의 캐시를 강제로 무효화!
         fresh_url = f"{AUTH_URL}&_={int(time.time())}"
-        df = pd.read_csv(fresh_url)
+        # [핵심 수정] dtype=str 을 추가하여 파이썬이 숫자를 마음대로 변형하지 못하게 원천 차단!
+        df = pd.read_csv(fresh_url, dtype=str)
         
-        # 소수점(.0), 쉼표(,) 제거 및 양옆 띄어쓰기 완벽 제거
-        codes = df['면접관 코드(그룹입사일)'].astype(str).str.replace(r'\.0$', '', regex=True).str.replace(',', '', regex=False).str.strip()
-        names = df['면접관 성명'].astype(str).str.strip()
+        # 빈칸(NaN) 처리 및 띄어쓰기 제거
+        df = df.fillna("")
+        codes = df['면접관 코드(그룹입사일)'].str.strip()
+        names = df['면접관 성명'].str.strip()
         
-        return pd.Series(names.values, index=codes.values).to_dict()
+        # 딕셔너리로 깔끔하게 묶어주기 (빈 값 제외)
+        valid_dict = {}
+        for c, n in zip(codes, names):
+            if c:  # 코드가 비어있지 않은 경우만 저장
+                valid_dict[c] = n
+                
+        return valid_dict
     except Exception as e:
         if "HTTP Error 401" in str(e):
             st.error("🚨 구글 시트 접근 권한이 없습니다. 시트의 공유 설정을 '링크가 있는 모든 사용자 (뷰어)'로 변경해주세요.")
@@ -87,7 +93,6 @@ if not st.session_state.authenticated:
     
     col1, col2 = st.columns(2)
     with col1:
-        # 입력된 값의 띄어쓰기를 자동으로 잘라냅니다 (.strip())
         code_input = st.text_input("인증 코드 입력", type="password").strip()
     with col2:
         api_key_input = st.text_input("개인 API 키", type="password", value=st.session_state.user_key).strip()
@@ -111,7 +116,8 @@ if not st.session_state.authenticated:
         elif not valid_users:
             st.error("시트가 연결되지 않아 인증할 수 없습니다. 시트 공유 권한을 확인해주세요.")
         else:
-            st.error("등록되지 않은 코드입니다. 시트에 코드가 정확히 추가되었는지 확인해주세요.")
+            # [요청 반영] 에러 메시지 변경
+            st.error("관리자에게 문의주세요.")
     st.stop()
 
 # --- 5. 핵심 기능 함수 ---
