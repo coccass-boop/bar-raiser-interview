@@ -85,7 +85,7 @@ if not st.session_state.authenticated:
         code_input = st.text_input("인증 코드 입력", type="password")
     with col2:
         # [수정] 안내 문구 변경 및 하단 가이드 추가
-        api_key_input = st.text_input("개인 API 키 (최초 1회 입력)", type="password", value=st.session_state.user_key)
+        api_key_input = st.text_input("개인 API 키", type="password", value=st.session_state.user_key)
         st.markdown("""
         <div style='font-size: 0.85rem; color: #555;'>
         💡 <b>API 키 무료 발급 방법 (1분 소요)</b><br>
