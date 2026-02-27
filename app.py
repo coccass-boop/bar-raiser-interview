@@ -112,7 +112,7 @@ if not st.session_state.authenticated:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 (질문 길이 대폭 축소) ---
+# --- 5. 핵심 기능 함수 (질문 어투 황금비율 튜닝 ✨) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -127,7 +127,9 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     if not final_api_key: return []
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
-    prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD. Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]. **[CRITICAL RULE] 'q'(질문)는 구구절절한 배경 설명이나 대화형 인사말을 절대 빼고, 면접관이 한눈에 파악할 수 있는 아주 짧고 간결한 '핵심 뼈대' 형태(1~2줄 이내)로만 작성하세요.**"
+    
+    # [핵심 튜닝] 로봇 같지 않게! 너무 길지도 않게! '자연스럽고 정중한 구어체'로 1~2문장!
+    prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD. Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]. **[CRITICAL RULE] 'q'(질문)는 면접관이 대본으로 바로 쓸 수 있는 자연스럽고 정중한 구어체로 작성하되, 불필요한 인사말이나 서론은 빼고 핵심만 1~2문장으로 간결하게 작성하세요.**"
     
     try:
         file_bytes = resume_file.getvalue()
@@ -178,14 +180,12 @@ with st.sidebar:
         if resume_file and jd_final:
             with st.spinner("⚡ 3개의 핵심 가치를 동시에 분석 중입니다... (속도 UP!)"):
                 
-                # [스레드 에러 완벽 해결] 일꾼들이 접근하지 못하게, API 키를 미리 꺼내서 변수로 쥐여줍니다!
                 current_api_key = st.session_state.user_key
 
                 def fetch_cat(cat, api_key):
                     return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, count=5)
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    # current_api_key를 각 스레드에 안전하게 전달
                     futures = [executor.submit(fetch_cat, cat, current_api_key) for cat in ["Transform", "Tomorrow", "Together"]]
                     for future in concurrent.futures.as_completed(futures):
                         cat, result = future.result()
@@ -209,7 +209,7 @@ if c3.button("↔️ 면접관 노트만 보기", use_container_width=True): st.
 st.divider()
 
 def render_questions():
-    st.subheader("🎯 제안 질문 리스트")
+    st.subheader("🎯 제안 질문 리스트 (가치별 5개)")
     if not any(st.session_state.ai_questions.values()):
         st.info("👈 사이드바 정보를 채운 후 버튼을 눌러주세요.")
         return
