@@ -112,7 +112,7 @@ if not st.session_state.authenticated:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 (질문 어투 황금비율 튜닝 ✨) ---
+# --- 5. 핵심 기능 함수 ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -128,7 +128,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
     
-    # [핵심 튜닝] 로봇 같지 않게! 너무 길지도 않게! '자연스럽고 정중한 구어체'로 1~2문장!
     prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD. Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]. **[CRITICAL RULE] 'q'(질문)는 면접관이 대본으로 바로 쓸 수 있는 자연스럽고 정중한 구어체로 작성하되, 불필요한 인사말이나 서론은 빼고 핵심만 1~2문장으로 간결하게 작성하세요.**"
     
     try:
@@ -178,7 +177,7 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("⚡ 3개의 핵심 가치를 동시에 분석 중입니다... (속도 UP!)"):
+            with st.spinner("⚡ 3개의 핵심 가치를 동시에 분석 중입니다..."):
                 
                 current_api_key = st.session_state.user_key
 
@@ -201,7 +200,8 @@ with st.sidebar:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 7. 메인 화면 ---
-st.title("✈️ Bar Raiser Copilot (v23-1 Turbo)")
+# [요청 반영] 문구 삭제
+st.title("✈️ Bar Raiser Copilot")
 c1, c2, c3 = st.columns(3)
 if c1.button("↔️ 질문 리스트만 보기", use_container_width=True): st.session_state.view_mode = "QuestionWide"; st.rerun()
 if c2.button("⬅️ 기본 보기 (반반)", use_container_width=True): st.session_state.view_mode = "Standard"; st.rerun()
@@ -209,12 +209,14 @@ if c3.button("↔️ 면접관 노트만 보기", use_container_width=True): st.
 st.divider()
 
 def render_questions():
+    # [요청 반영] 문구 삭제
     st.subheader("🎯 제안 질문 리스트")
     if not any(st.session_state.ai_questions.values()):
         st.info("👈 사이드바 정보를 채운 후 버튼을 눌러주세요.")
         return
     for cat in ["Transform", "Tomorrow", "Together"]:
-        with st.expander(f"📌 {cat} ({BAR_RAISER_CRITERIA[cat]})", expanded=True):
+        # [핵심 수정] expanded=False 로 설정하여 기본적으로 접혀 있도록 변경
+        with st.expander(f"📌 {cat} ({BAR_RAISER_CRITERIA[cat]})", expanded=False):
             
             b1, b2 = st.columns(2)
             with b1:
