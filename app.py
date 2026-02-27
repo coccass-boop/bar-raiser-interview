@@ -14,31 +14,21 @@ st.markdown("""
     <style>
     [data-testid="column"] { min-width: 320px !important; }
     .stMarkdown p, .stSubheader { word-break: keep-all !important; }
-    .v-center {
-        display: flex !important; align-items: center !important; justify-content: center !important;
-        height: 100% !important; padding-top: 10px !important;
+    /* 카드형 UI 가독성 개선 */
+    .q-card {
+        border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px; margin-bottom: 15px;
+        background-color: #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.02);
     }
-    .v-center button {
-        border: none !important; background: transparent !important; box-shadow: none !important;
-        padding: 0px !important; height: 32px !important; width: 32px !important; color: #555 !important;
-    }
-    .v-center button:hover { color: #ff4b4b !important; }
-    .q-block { margin-bottom: 15px !important; padding-bottom: 5px !important; }
-    .q-text { font-size: 16px !important; font-weight: 600 !important; line-height: 1.6 !important; margin-bottom: 8px !important; }
+    .q-text { font-size: 15px !important; font-weight: 700 !important; color: #1f1f1f; margin-bottom: 8px; line-height: 1.5; }
+    .i-text { font-size: 13px !important; color: #666666; background-color: #f8f9fa; padding: 6px 10px; border-radius: 4px; margin-bottom: 10px; }
     [data-testid="stSidebar"] .stButton button { width: 100% !important; height: auto !important; }
-    .reset-btn button { background-color: #ff4b4b !important; color: white !important; border: none !important; }
-    .security-alert {
-        background-color: #fff5f5; border: 1px solid #ff4b4b; border-radius: 5px;
-        padding: 15px; font-size: 0.85rem; color: #d8000c; margin-bottom: 20px;
-    }
-    /* 작고 귀여운 로그아웃 버튼 디자인 */
-    [data-testid="stSidebar"] .logout-btn button { 
+    .logout-btn button { 
         width: auto !important; height: auto !important; 
         font-size: 11px !important; padding: 4px 10px !important; 
         color: #999 !important; border: 1px solid #eee !important; 
         background: transparent !important; float: right !important; margin-top: 40px !important;
     }
-    [data-testid="stSidebar"] .logout-btn button:hover { color: #ff4b4b !important; border-color: #ff4b4b !important; }
+    .logout-btn button:hover { color: #ff4b4b !important; border-color: #ff4b4b !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -50,30 +40,17 @@ def load_auth_data():
     try:
         fresh_url = f"{AUTH_URL}&_={int(time.time())}"
         df = pd.read_csv(fresh_url, dtype=str, keep_default_na=False)
-        
         df.columns = df.columns.astype(str).str.strip()
-        
         code_col = next((c for c in df.columns if '코드' in c or '입사일' in c), None)
         name_col = next((c for c in df.columns if '성명' in c or '이름' in c or '면접관' in c and c != code_col), None)
         
-        if not code_col or not name_col:
-            st.error(f"시트 첫 줄에서 '코드'와 '성명' 기둥을 못 찾았습니다. 현재 시트 제목들: {list(df.columns)}")
-            return {}
-
+        if not code_col or not name_col: return {}
         codes = df[code_col].str.replace(r'\s+', '', regex=True).str.replace(',', '', regex=False).str.replace(r'\.0*$', '', regex=True)
         names = df[name_col].str.replace(r'\s+', '', regex=True)
         
-        valid_dict = {}
-        for c, n in zip(codes, names):
-            if c:  
-                valid_dict[c] = n
-                
+        valid_dict = {c: n for c, n in zip(codes, names) if c}
         return valid_dict
     except Exception as e:
-        if "HTTP Error 401" in str(e):
-            st.error("🚨 구글 시트 접근 권한이 없습니다. 시트의 공유 설정을 '링크가 있는 모든 사용자 (뷰어)'로 변경해주세요.")
-        else:
-            st.error(f"시트 데이터를 불러오는 데 실패했습니다: {e}")
         return {}
 
 # --- 3. 데이터 초기화 ---
@@ -109,31 +86,33 @@ if not st.session_state.authenticated:
         raw_code = st.text_input("인증 코드 입력", type="password")
         clean_code_input = re.sub(r'\s+', '', raw_code) 
     with col2:
-        api_key_input = st.text_input("개인 API 키", type="password", value=st.session_state.user_key).strip()
+        api_key_input = st.text_input("개인 API 키 (필수)", type="password", value=st.session_state.user_key).strip()
         st.markdown("""
         <div style='font-size: 0.85rem; color: #555;'>
-        💡 <b>API 키 무료 발급 방법 (1분 소요)</b><br>
-        1. <a href='https://aistudio.google.com/app/apikey' target='_blank'>Google AI Studio</a> 접속 (구글 로그인)<br>
-        2. 화면의 <b>'Create API key'</b> 클릭 후 복사 아이콘(📋) 클릭<br>
-        3. 위 칸에 붙여넣기 (브라우저를 닫기 전까지 유지됩니다)
+        💡 <b>API 키가 없으신가요? (1분 소요)</b><br>
+        1. <a href='https://aistudio.google.com/app/apikey' target='_blank'>Google AI Studio</a> 접속<br>
+        2. <b>'Create API key'</b> 클릭 후 복사(📋)하여 위 칸에 붙여넣기
         </div>
         """, unsafe_allow_html=True)
     
     st.write("")
     if st.button("인증 및 입장", type="primary"):
-        if clean_code_input in valid_users:
+        # [수정 1] API 키 필수 입력 로직
+        if not api_key_input:
+            st.error("🚨 개인 API 키를 반드시 입력해주세요!")
+        elif clean_code_input in valid_users:
             st.session_state.authenticated = True
             st.session_state.user_code = clean_code_input
             st.session_state.user_nickname = valid_users[clean_code_input]
             st.session_state.user_key = api_key_input
             st.rerun()
         elif not valid_users:
-            st.error("시트가 연결되지 않아 인증할 수 없습니다. 시트 공유 권한을 확인해주세요.")
+            st.error("시트가 연결되지 않아 인증할 수 없습니다.")
         else:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 (최신 모델 gemini-2.5-flash 탑재) ---
+# --- 5. 핵심 기능 함수 ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -143,19 +122,19 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key):
+# [수정 2] count=5 파라미터 추가, 프롬프트에 레벨 상세설명 주입
+def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, count=5):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
-    if not final_api_key:
-        return [{"q": "API 키를 입력해주세요.", "i": "사이드바 상단 확인"}]
+    if not final_api_key: return []
 
-    prompt = f"[Role] Bar Raiser Interviewer. [Target] {level}. [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD. Create 10 Questions JSON: [{{'q': '질문', 'i': '의도'}}]"
+    level_desc = LEVEL_GUIDELINES.get(level, "")
+    prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD. Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]"
     
     try:
         file_bytes = resume_file.getvalue()
         pdf_base64 = base64.b64encode(file_bytes).decode('utf-8')
         mime_type = "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg"
         
-        # [수정 완료] 404 에러를 내뿜던 구버전 모델 대신 최신 2.5 flash 모델로 교체!
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={final_api_key}"
         data = {"contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}]}]}
         
@@ -164,17 +143,15 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
             if res.status_code == 200:
                 raw = res.json()['candidates'][0]['content']['parts'][0]['text']
                 match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
-                return json.loads(match.group()) if match else [{"q": "JSON 추출 실패", "i": "재시도 해주세요."}]
+                return json.loads(match.group()) if match else []
             elif res.status_code in [429, 500, 503]:
-                time.sleep(5)
+                time.sleep(3)
                 continue
-            else: 
-                return [{"q": f"API 에러 ({res.status_code})", "i": "키 또는 네트워크 상태 확인"}]
-    except Exception as e: 
-        return [{"q": "시스템 오류 발생", "i": str(e)}]
+            else: return []
+    except Exception: return []
     return []
 
-# --- 6. 화면 구성 ---
+# --- 6. 사이드바 구성 ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     st.success(f"👤 접속 완료: **{st.session_state.user_nickname}** 님")
@@ -200,29 +177,23 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("생성 중..."):
+            with st.spinner("5개의 날카로운 질문을 뽑고 있습니다..."):
                 for cat in ["Transform", "Tomorrow", "Together"]:
-                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key)
-                    time.sleep(2)
+                    # 기본 5개 생성
+                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, count=5)
+                    time.sleep(1.5)
             st.rerun()
         else:
             st.error("이력서와 JD를 모두 입력해주세요.")
 
-    # 미니 로그아웃 버튼 (사이드바 우측 하단 배치)
     st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
     if st.button("🚪 로그아웃", help="인증 화면으로 돌아갑니다"):
         st.session_state.authenticated = False
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.divider()
-    if st.button("🗑️ 초기화", use_container_width=True):
-        for k in ["ai_questions", "selected_questions"]: st.session_state[k] = {"Transform": [], "Tomorrow": [], "Together": []} if k=="ai_questions" else []
-        st.rerun()
-
-
 # --- 7. 메인 화면 ---
-st.title("✈️ Bar Raiser Copilot")
+st.title("✈️ Bar Raiser Copilot (v23-1)")
 c1, c2, c3 = st.columns(3)
 if c1.button("↔️ 질문 리스트만 보기", use_container_width=True): st.session_state.view_mode = "QuestionWide"; st.rerun()
 if c2.button("⬅️ 기본 보기 (반반)", use_container_width=True): st.session_state.view_mode = "Standard"; st.rerun()
@@ -230,49 +201,91 @@ if c3.button("↔️ 면접관 노트만 보기", use_container_width=True): st.
 st.divider()
 
 def render_questions():
-    st.subheader("🎯 제안 질문 리스트")
+    st.subheader("🎯 제안 질문 리스트 (가치별 5개)")
     if not any(st.session_state.ai_questions.values()):
         st.info("👈 사이드바 정보를 채운 후 버튼을 눌러주세요.")
         return
     for cat in ["Transform", "Tomorrow", "Together"]:
-        with st.expander(f"📌 {cat}({BAR_RAISER_CRITERIA[cat]}) 리스트", expanded=True):
-            col_h, col_b = st.columns([0.94, 0.06])
-            with col_b:
-                st.markdown('<div class="v-center">', unsafe_allow_html=True)
-                if st.button("🔄", key=f"ref_{cat}"):
-                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key)
+        with st.expander(f"📌 {cat} ({BAR_RAISER_CRITERIA[cat]})", expanded=True):
+            
+            # [수정 3] 전체 새로고침 vs 선택 새로고침 버튼
+            b1, b2 = st.columns(2)
+            with b1:
+                if st.button("🔄 전체 새로고침", key=f"ref_all_{cat}", use_container_width=True):
+                    with st.spinner("새로 뽑는 중..."):
+                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, count=5)
                     st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
-            st.divider()
+            with b2:
+                if st.button("♻️ 선택한 질문만 다시 뽑기", key=f"ref_sel_{cat}", use_container_width=True):
+                    # 체크된 인덱스 찾기
+                    sel_indices = [idx for idx in range(len(st.session_state.ai_questions[cat])) if st.session_state.get(f"chk_{cat}_{idx}")]
+                    if sel_indices:
+                        with st.spinner("선택된 질문 교체 중..."):
+                            new_qs = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, count=len(sel_indices))
+                            for new_q, target_idx in zip(new_qs, sel_indices):
+                                st.session_state.ai_questions[cat][target_idx] = new_q
+                        st.rerun()
+                    else:
+                        st.warning("다시 뽑을 질문을 먼저 체크해주세요!")
+            
+            st.write("") # 간격
+            
+            # [수정 4] 가독성 높은 카드 UI 적용
             for i, q in enumerate(st.session_state.ai_questions.get(cat, [])):
                 q_v, i_v = q.get('q', ''), q.get('i', '')
-                qc, ac = st.columns([0.94, 0.06])
-                with qc: st.markdown(f"<div class='q-block'><div class='q-text'>Q. {q_v}</div><div style='color:gray; font-size:0.85rem;'>🎯 의도: {i_v}</div></div>", unsafe_allow_html=True)
-                with ac:
-                    st.markdown('<div class="v-center">', unsafe_allow_html=True)
-                    if st.button("➕", key=f"add_{cat}_{i}"):
+                st.markdown(f"""
+                <div class="q-card">
+                    <div class="q-text">Q{i+1}. {q_v}</div>
+                    <div class="i-text">🎯 <b>의도:</b> {i_v}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # 액션 버튼 (체크박스 & 노트 담기)
+                ca, cb = st.columns([0.7, 0.3])
+                with ca:
+                    st.checkbox("이 질문 다시 뽑기", key=f"chk_{cat}_{i}")
+                with cb:
+                    if st.button("➕ 노트에 담기", key=f"add_{cat}_{i}", use_container_width=True):
                         if q_v and q_v not in [sq['q'] for sq in st.session_state.selected_questions]:
                             st.session_state.selected_questions.append({"q": q_v, "cat": cat, "memo": ""})
-                    st.markdown('</div>', unsafe_allow_html=True)
-                st.divider()
+                            st.toast("✅ 면접관 노트에 추가되었습니다!")
 
 def render_notes():
     st.subheader("📝 면접관 노트")
-    if st.button("➕ 직접 입력", use_container_width=True): st.session_state.selected_questions.append({"q": "", "cat": "Custom", "memo": ""})
+    if st.button("➕ 직접 입력 (새 질문)", use_container_width=True): 
+        st.session_state.selected_questions.append({"q": "", "cat": "Custom", "memo": ""})
     st.divider()
+    
     for idx, item in enumerate(st.session_state.selected_questions):
-        t_c, d_c = st.columns([0.94, 0.06])
-        with t_c: st.markdown(f"<span style='font-size:0.8rem; color:gray;'>Q{idx+1}</span> <span style='background-color:#f0f2f6; padding:2px 6px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>{item.get('cat','Custom')}</span>", unsafe_allow_html=True)
-        with d_c:
-            st.markdown('<div class="v-center">', unsafe_allow_html=True)
-            if st.button("✕", key=f"del_{idx}"): st.session_state.selected_questions.pop(idx); st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-        st.session_state.selected_questions[idx]['q'] = st.text_area(f"qn_{idx}", value=item.get('q',''), label_visibility="collapsed", height=80, key=f"aq_{idx}")
-        st.session_state.selected_questions[idx]['memo'] = st.text_area(f"mn_{idx}", value=item.get('memo',''), placeholder="메모...", label_visibility="collapsed", height=150, key=f"am_{idx}")
+        st.markdown(f"**[{item.get('cat','Custom')}] 질문 {idx+1}**")
+        
+        # [수정 5] 실시간 값 바인딩 (입력 즉시 session_state에 저장되도록 key 활용)
+        st.session_state.selected_questions[idx]['q'] = st.text_area("질문", value=item.get('q',''), height=70, key=f"aq_{idx}", label_visibility="collapsed")
+        st.session_state.selected_questions[idx]['memo'] = st.text_area("메모/답변", value=item.get('memo',''), placeholder="지원자 답변 및 평가 메모...", height=120, key=f"am_{idx}", label_visibility="collapsed")
+        
+        if st.button("🗑️ 삭제", key=f"del_{idx}"): 
+            st.session_state.selected_questions.pop(idx); st.rerun()
+        st.markdown("---")
 
+    # [수정 6] 다운로드 파일 텍스트 가독성 대폭 개선
     if st.session_state.selected_questions:
-        txt = f"후보자: {candidate_name}\n" + "\n".join([f"[{s['cat']}] Q: {s['q']}\nA: {s['memo']}" for s in st.session_state.selected_questions])
-        st.download_button("💾 결과 저장 (.txt)", txt, f"Result_{candidate_name}.txt", type="primary", use_container_width=True)
+        txt_content = f"=========================================\n"
+        txt_content += f" 👤 면접 후보자 : {candidate_name if candidate_name else '이름 미상'}\n"
+        txt_content += f" 📊 지원 레벨 : {selected_level}\n"
+        txt_content += f"=========================================\n\n"
+        
+        for idx, s in enumerate(st.session_state.selected_questions):
+            # 화면의 최신 값을 바로 가져옵니다.
+            cur_q = st.session_state.get(f"aq_{idx}", s['q'])
+            cur_a = st.session_state.get(f"am_{idx}", s['memo'])
+            
+            txt_content += f"▶ [질문 {idx+1}] ({s['cat']} 역량 검증)\n"
+            txt_content += f"Q : {cur_q}\n"
+            txt_content += f"-----------------------------------------\n"
+            txt_content += f"A (답변 및 메모) :\n{cur_a}\n"
+            txt_content += f"=========================================\n\n"
+            
+        st.download_button("💾 예쁘게 결과 저장하기 (.txt)", txt_content, f"면접기록_{candidate_name}.txt", type="primary", use_container_width=True)
 
 if st.session_state.view_mode == "QuestionWide": render_questions()
 elif st.session_state.view_mode == "NoteWide": render_notes()
