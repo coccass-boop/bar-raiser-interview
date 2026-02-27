@@ -209,7 +209,7 @@ if c3.button("↔️ 면접관 노트만 보기", use_container_width=True): st.
 st.divider()
 
 def render_questions():
-    st.subheader("🎯 제안 질문 리스트 (가치별 5개)")
+    st.subheader("🎯 제안 질문 리스트")
     if not any(st.session_state.ai_questions.values()):
         st.info("👈 사이드바 정보를 채운 후 버튼을 눌러주세요.")
         return
