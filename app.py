@@ -6,6 +6,7 @@ import re
 import time
 import pandas as pd
 from bs4 import BeautifulSoup
+import concurrent.futures
 
 # --- 1. 디자인 CSS ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
@@ -97,7 +98,6 @@ if not st.session_state.authenticated:
     
     st.write("")
     if st.button("인증 및 입장", type="primary"):
-        # [수정 1] API 키 필수 입력 로직
         if not api_key_input:
             st.error("🚨 개인 API 키를 반드시 입력해주세요!")
         elif clean_code_input in valid_users:
@@ -112,7 +112,7 @@ if not st.session_state.authenticated:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 ---
+# --- 5. 핵심 기능 함수 (질문 길이 대폭 축소) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -122,13 +122,13 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-# [수정 2] count=5 파라미터 추가, 프롬프트에 레벨 상세설명 주입
 def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, count=5):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
     if not final_api_key: return []
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
-    prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD. Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]"
+    # [수정] 프롬프트에 뼈대만 작성하라는 강력한 지시 추가
+    prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD. Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]. **[CRITICAL RULE] 'q'(질문)는 구구절절한 배경 설명이나 대화형 인사말을 절대 빼고, 면접관이 한눈에 파악할 수 있는 아주 짧고 간결한 '핵심 뼈대' 형태(1~2줄 이내)로만 작성하세요.**"
     
     try:
         file_bytes = resume_file.getvalue()
@@ -177,11 +177,15 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("5개의 날카로운 질문을 뽑고 있습니다..."):
-                for cat in ["Transform", "Tomorrow", "Together"]:
-                    # 기본 5개 생성
-                    st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, count=5)
-                    time.sleep(1.5)
+            with st.spinner("⚡ 3개의 핵심 가치를 동시에 분석 중입니다... (속도 UP!)"):
+                def fetch_cat(cat):
+                    return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, count=5)
+
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    futures = [executor.submit(fetch_cat, cat) for cat in ["Transform", "Tomorrow", "Together"]]
+                    for future in concurrent.futures.as_completed(futures):
+                        cat, result = future.result()
+                        st.session_state.ai_questions[cat] = result
             st.rerun()
         else:
             st.error("이력서와 JD를 모두 입력해주세요.")
@@ -193,7 +197,7 @@ with st.sidebar:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 7. 메인 화면 ---
-st.title("✈️ Bar Raiser Copilot (v23-1)")
+st.title("✈️ Bar Raiser Copilot (v23-1 Turbo)")
 c1, c2, c3 = st.columns(3)
 if c1.button("↔️ 질문 리스트만 보기", use_container_width=True): st.session_state.view_mode = "QuestionWide"; st.rerun()
 if c2.button("⬅️ 기본 보기 (반반)", use_container_width=True): st.session_state.view_mode = "Standard"; st.rerun()
@@ -208,7 +212,6 @@ def render_questions():
     for cat in ["Transform", "Tomorrow", "Together"]:
         with st.expander(f"📌 {cat} ({BAR_RAISER_CRITERIA[cat]})", expanded=True):
             
-            # [수정 3] 전체 새로고침 vs 선택 새로고침 버튼
             b1, b2 = st.columns(2)
             with b1:
                 if st.button("🔄 전체 새로고침", key=f"ref_all_{cat}", use_container_width=True):
@@ -217,7 +220,6 @@ def render_questions():
                     st.rerun()
             with b2:
                 if st.button("♻️ 선택한 질문만 다시 뽑기", key=f"ref_sel_{cat}", use_container_width=True):
-                    # 체크된 인덱스 찾기
                     sel_indices = [idx for idx in range(len(st.session_state.ai_questions[cat])) if st.session_state.get(f"chk_{cat}_{idx}")]
                     if sel_indices:
                         with st.spinner("선택된 질문 교체 중..."):
@@ -228,9 +230,8 @@ def render_questions():
                     else:
                         st.warning("다시 뽑을 질문을 먼저 체크해주세요!")
             
-            st.write("") # 간격
+            st.write("") 
             
-            # [수정 4] 가독성 높은 카드 UI 적용
             for i, q in enumerate(st.session_state.ai_questions.get(cat, [])):
                 q_v, i_v = q.get('q', ''), q.get('i', '')
                 st.markdown(f"""
@@ -240,7 +241,6 @@ def render_questions():
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # 액션 버튼 (체크박스 & 노트 담기)
                 ca, cb = st.columns([0.7, 0.3])
                 with ca:
                     st.checkbox("이 질문 다시 뽑기", key=f"chk_{cat}_{i}")
@@ -259,7 +259,6 @@ def render_notes():
     for idx, item in enumerate(st.session_state.selected_questions):
         st.markdown(f"**[{item.get('cat','Custom')}] 질문 {idx+1}**")
         
-        # [수정 5] 실시간 값 바인딩 (입력 즉시 session_state에 저장되도록 key 활용)
         st.session_state.selected_questions[idx]['q'] = st.text_area("질문", value=item.get('q',''), height=70, key=f"aq_{idx}", label_visibility="collapsed")
         st.session_state.selected_questions[idx]['memo'] = st.text_area("메모/답변", value=item.get('memo',''), placeholder="지원자 답변 및 평가 메모...", height=120, key=f"am_{idx}", label_visibility="collapsed")
         
@@ -267,7 +266,6 @@ def render_notes():
             st.session_state.selected_questions.pop(idx); st.rerun()
         st.markdown("---")
 
-    # [수정 6] 다운로드 파일 텍스트 가독성 대폭 개선
     if st.session_state.selected_questions:
         txt_content = f"=========================================\n"
         txt_content += f" 👤 면접 후보자 : {candidate_name if candidate_name else '이름 미상'}\n"
@@ -275,7 +273,6 @@ def render_notes():
         txt_content += f"=========================================\n\n"
         
         for idx, s in enumerate(st.session_state.selected_questions):
-            # 화면의 최신 값을 바로 가져옵니다.
             cur_q = st.session_state.get(f"aq_{idx}", s['q'])
             cur_a = st.session_state.get(f"am_{idx}", s['memo'])
             
