@@ -112,7 +112,7 @@ if not st.session_state.authenticated:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 ---
+# --- 5. 핵심 기능 함수 (실무면접 전달사항 반영) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -122,13 +122,17 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, count=5):
+# [수정] tech_feedback 파라미터 추가
+def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", count=5):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
     if not final_api_key: return []
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
     
-    prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD. Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]. **[CRITICAL RULE] 'q'(질문)는 면접관이 대본으로 바로 쓸 수 있는 자연스럽고 정중한 구어체로 작성하되, 불필요한 인사말이나 서론은 빼고 핵심만 1~2문장으로 간결하게 작성하세요.**"
+    # 전달사항이 있으면 프롬프트에 강력하게 주입!
+    feedback_instruction = f" **[Previous Interview Feedback]: {tech_feedback}. Make sure to incorporate questions that strictly verify these specific feedback points.**" if tech_feedback else ""
+    
+    prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD.{feedback_instruction} Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]. **[CRITICAL RULE] 'q'(질문)는 면접관이 대본으로 바로 쓸 수 있는 자연스럽고 정중한 구어체로 작성하되, 불필요한 인사말이나 서론은 빼고 핵심만 1~2문장으로 간결하게 작성하세요.**"
     
     try:
         file_bytes = resume_file.getvalue()
@@ -171,7 +175,13 @@ with st.sidebar:
     with tab2: jd_txt_area = st.text_area("내용 붙여넣기", height=100)
     jd_final = jd_txt_area if jd_txt_area else jd_fetched
 
-    resume_file = st.file_uploader("3. 이력서 업로드", type=["pdf", "png", "jpg", "jpeg"])
+    st.subheader("3. 이력서 업로드")
+    resume_file = st.file_uploader("파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed")
+    
+    # [신규 추가] 실무면접 전달사항 입력칸
+    st.subheader("4. 이전 면접(실무) 전달사항 (선택)")
+    tech_feedback = st.text_area("확인 요망 사항", placeholder="예: 협업 시 갈등을 어떻게 해결했는지 더 깊게 검증해 주세요.", height=80, label_visibility="collapsed")
+
     st.divider()
     agree = st.checkbox("✅ 민감 정보 없음을 확인했습니다.")
     
@@ -182,7 +192,8 @@ with st.sidebar:
                 current_api_key = st.session_state.user_key
 
                 def fetch_cat(cat, api_key):
-                    return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, count=5)
+                    # tech_feedback 변수를 함께 넘겨줍니다!
+                    return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, count=5)
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     futures = [executor.submit(fetch_cat, cat, current_api_key) for cat in ["Transform", "Tomorrow", "Together"]]
@@ -200,7 +211,6 @@ with st.sidebar:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 7. 메인 화면 ---
-# [요청 반영] 문구 삭제
 st.title("✈️ Bar Raiser Copilot")
 c1, c2, c3 = st.columns(3)
 if c1.button("↔️ 질문 리스트만 보기", use_container_width=True): st.session_state.view_mode = "QuestionWide"; st.rerun()
@@ -209,27 +219,26 @@ if c3.button("↔️ 면접관 노트만 보기", use_container_width=True): st.
 st.divider()
 
 def render_questions():
-    # [요청 반영] 문구 삭제
     st.subheader("🎯 제안 질문 리스트")
     if not any(st.session_state.ai_questions.values()):
         st.info("👈 사이드바 정보를 채운 후 버튼을 눌러주세요.")
         return
     for cat in ["Transform", "Tomorrow", "Together"]:
-        # [핵심 수정] expanded=False 로 설정하여 기본적으로 접혀 있도록 변경
         with st.expander(f"📌 {cat} ({BAR_RAISER_CRITERIA[cat]})", expanded=False):
             
             b1, b2 = st.columns(2)
             with b1:
                 if st.button("🔄 전체 새로고침", key=f"ref_all_{cat}", use_container_width=True):
                     with st.spinner("새로 뽑는 중..."):
-                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, count=5)
+                        # 새로고침 시에도 전달사항을 반영합니다.
+                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, count=5)
                     st.rerun()
             with b2:
                 if st.button("♻️ 선택한 질문만 다시 뽑기", key=f"ref_sel_{cat}", use_container_width=True):
                     sel_indices = [idx for idx in range(len(st.session_state.ai_questions[cat])) if st.session_state.get(f"chk_{cat}_{idx}")]
                     if sel_indices:
                         with st.spinner("선택된 질문 교체 중..."):
-                            new_qs = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, count=len(sel_indices))
+                            new_qs = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, count=len(sel_indices))
                             for new_q, target_idx in zip(new_qs, sel_indices):
                                 st.session_state.ai_questions[cat][target_idx] = new_q
                         st.rerun()
