@@ -127,7 +127,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     if not final_api_key: return []
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
-    # [수정] 프롬프트에 뼈대만 작성하라는 강력한 지시 추가
     prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD. Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]. **[CRITICAL RULE] 'q'(질문)는 구구절절한 배경 설명이나 대화형 인사말을 절대 빼고, 면접관이 한눈에 파악할 수 있는 아주 짧고 간결한 '핵심 뼈대' 형태(1~2줄 이내)로만 작성하세요.**"
     
     try:
@@ -178,11 +177,16 @@ with st.sidebar:
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
             with st.spinner("⚡ 3개의 핵심 가치를 동시에 분석 중입니다... (속도 UP!)"):
-                def fetch_cat(cat):
-                    return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, count=5)
+                
+                # [스레드 에러 완벽 해결] 일꾼들이 접근하지 못하게, API 키를 미리 꺼내서 변수로 쥐여줍니다!
+                current_api_key = st.session_state.user_key
+
+                def fetch_cat(cat, api_key):
+                    return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, count=5)
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    futures = [executor.submit(fetch_cat, cat) for cat in ["Transform", "Tomorrow", "Together"]]
+                    # current_api_key를 각 스레드에 안전하게 전달
+                    futures = [executor.submit(fetch_cat, cat, current_api_key) for cat in ["Transform", "Tomorrow", "Together"]]
                     for future in concurrent.futures.as_completed(futures):
                         cat, result = future.result()
                         st.session_state.ai_questions[cat] = result
