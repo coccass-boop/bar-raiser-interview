@@ -27,7 +27,7 @@ st.markdown("""
         width: auto !important; height: auto !important; 
         font-size: 11px !important; padding: 4px 10px !important; 
         color: #999 !important; border: 1px solid #eee !important; 
-        background: transparent !important; float: right !important; margin-top: 40px !important;
+        background: transparent !important; float: right !important; margin-top: 10px !important;
     }
     .logout-btn button:hover { color: #ff4b4b !important; border-color: #ff4b4b !important; }
     </style>
@@ -67,7 +67,6 @@ for key in ["ai_questions", "selected_questions", "view_mode", "temp_setting"]:
         elif key == "view_mode": st.session_state[key] = "Standard"
         elif key == "temp_setting": st.session_state[key] = 0.7
 
-# 이미지의 빨간 박스 내용으로 가치 기준 완벽 세팅
 BAR_RAISER_CRITERIA = {
     "Transform": "Enduring Value Creation (시간이 지날수록 더 큰 가치를 만들어내는 솔루션을 구축합니다.)",
     "Tomorrow": "Forward Thinking (미래를 고려해 확장성과 지속성을 갖춘 솔루션을 구축합니다.)",
@@ -117,7 +116,10 @@ if not st.session_state.authenticated:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 (질문/의도 직관성 극대화 ✨) ---
+# --- 5. 핵심 기능 함수 ---
+
+# [핵심 수정] JD를 매번 불러오면서 생기는 렉(로딩)을 없애기 위해 캐시(기억장치) 적용!
+@st.cache_data(ttl=3600)
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -135,7 +137,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     value_desc = BAR_RAISER_CRITERIA[category]
     feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
     
-    # [핵심 1] 어려운 말 빼고 직관적이고 쉬운 단어로 쓰도록 강력 통제!
     prompt = f"""
     [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
     [Target] 지원 레벨: {level} ({level_desc})
@@ -220,6 +221,14 @@ with st.sidebar:
         else:
             st.error("이력서와 JD를 모두 입력해주세요.")
 
+    st.divider()
+    
+    # [복구 완료] 소중한 초기화 버튼 부활!
+    if st.button("🗑️ 초기화", use_container_width=True):
+        for k in ["ai_questions", "selected_questions"]: 
+            st.session_state[k] = {"Transform": [], "Tomorrow": [], "Together": []} if k=="ai_questions" else []
+        st.rerun()
+
     st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
     if st.button("🚪 로그아웃", help="인증 화면으로 돌아갑니다"):
         st.session_state.authenticated = False
@@ -290,9 +299,7 @@ def render_notes():
     for idx, item in enumerate(st.session_state.selected_questions):
         st.markdown(f"**[{item.get('cat','Custom')}] 질문 {idx+1}**")
         
-        # [핵심 2] 질문 텍스트칸 높이(height)를 100으로 키워 스크롤 없이 한눈에 보이게 수정!
         st.session_state.selected_questions[idx]['q'] = st.text_area("질문", value=item.get('q',''), height=100, key=f"aq_{idx}", label_visibility="collapsed")
-        # 메모칸 높이도 200으로 시원하게 확장!
         st.session_state.selected_questions[idx]['memo'] = st.text_area("메모/답변", value=item.get('memo',''), placeholder="지원자 답변 및 평가 메모...", height=200, key=f"am_{idx}", label_visibility="collapsed")
         
         if st.button("🗑️ 삭제", key=f"del_{idx}"): 
@@ -315,7 +322,6 @@ def render_notes():
             txt_content += f"A (답변 및 메모) :\n{cur_a}\n"
             txt_content += f"=========================================\n\n"
             
-        # [핵심 3] 버튼 문구 프로페셔널하게 변경
         st.download_button("💾 결과 텍스트로 저장하기 (.txt)", txt_content, f"면접기록_{candidate_name}.txt", type="primary", use_container_width=True)
 
 if st.session_state.view_mode == "QuestionWide": render_questions()
