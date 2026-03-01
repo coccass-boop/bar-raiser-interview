@@ -174,7 +174,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     except Exception: return []
     return []
 
-# [핵심 수정] 초기화 에러(StreamlitAPIException)를 원천 차단하는 콜백 함수!
 def reset_all_inputs():
     st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
     st.session_state.selected_questions = []
@@ -219,7 +218,7 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("⚡ 지원자의 가치관을 파헤칠 컬처핏 질문을 고민 중입니다..."):
+            with st.spinner("⚡ 3T 핵심 가치 기반 질문을 생성 중입니다..."):
                 current_api_key = st.session_state.user_key
 
                 def fetch_cat(cat, api_key):
@@ -236,7 +235,6 @@ with st.sidebar:
 
     st.divider()
     
-    # [에러 해결 적용] 버튼을 누르면 화면을 그리기 전에 미리 reset_all_inputs 함수 실행!
     st.button("🗑️ 초기화", use_container_width=True, on_click=reset_all_inputs)
 
     st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
@@ -267,6 +265,10 @@ def render_questions():
                 if st.button("🔄 전체 새로고침", key=f"ref_all_{cat}", use_container_width=True):
                     with st.spinner("새로 뽑는 중..."):
                         st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, count=5)
+                        # [핵심] 전체 새로고침 시 체크되어 있던 박스도 모두 초기화!
+                        for idx in range(5):
+                            if f"chk_{cat}_{idx}" in st.session_state:
+                                st.session_state[f"chk_{cat}_{idx}"] = False
                     st.rerun()
             with b2:
                 if st.button("♻️ 선택한 질문만 다시 뽑기", key=f"ref_sel_{cat}", use_container_width=True):
@@ -276,6 +278,8 @@ def render_questions():
                             new_qs = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, count=len(sel_indices))
                             for new_q, target_idx in zip(new_qs, sel_indices):
                                 st.session_state.ai_questions[cat][target_idx] = new_q
+                                # [핵심] 다시 뽑은 질문의 체크박스는 해제(False)해줍니다!
+                                st.session_state[f"chk_{cat}_{target_idx}"] = False
                         st.rerun()
                     else:
                         st.warning("다시 뽑을 질문을 먼저 체크해주세요!")
