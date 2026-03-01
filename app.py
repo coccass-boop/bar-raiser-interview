@@ -60,7 +60,6 @@ if "user_code" not in st.session_state: st.session_state.user_code = ""
 if "user_nickname" not in st.session_state: st.session_state.user_nickname = ""
 if "user_key" not in st.session_state: st.session_state.user_key = ""
 
-# [핵심] 사이드바 파일 업로더 초기화를 위한 고유 키(Key) 생성
 if "uploader_key" not in st.session_state: st.session_state.uploader_key = 0
 
 for key in ["ai_questions", "selected_questions", "view_mode", "temp_setting"]:
@@ -175,6 +174,18 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     except Exception: return []
     return []
 
+# [핵심 수정] 초기화 에러(StreamlitAPIException)를 원천 차단하는 콜백 함수!
+def reset_all_inputs():
+    st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
+    st.session_state.selected_questions = []
+    if "input_candidate" in st.session_state: st.session_state.input_candidate = ""
+    if "input_jd_url" in st.session_state: st.session_state.input_jd_url = ""
+    if "input_jd_txt" in st.session_state: st.session_state.input_jd_txt = ""
+    if "input_feedback" in st.session_state: st.session_state.input_feedback = ""
+    if "input_agree" in st.session_state: st.session_state.input_agree = False
+    if "input_level" in st.session_state: st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0]
+    st.session_state.uploader_key += 1
+
 # --- 6. 사이드바 구성 ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
@@ -185,7 +196,6 @@ with st.sidebar:
         
     st.markdown('<div class="security-alert">🚨 <b>보안 주의사항</b><br>민감 정보는 마스킹 후 업로드하세요.</div>', unsafe_allow_html=True)
     
-    # [핵심 수정] 초기화를 위해 모든 위젯에 고유 Key(이름표) 부여!
     candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력", key="input_candidate")
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
@@ -226,19 +236,8 @@ with st.sidebar:
 
     st.divider()
     
-    # [핵심 수정] 사이드바 데이터까지 완벽하게 비워주는 '초기화' 로직!
-    if st.button("🗑️ 초기화", use_container_width=True):
-        st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
-        st.session_state.selected_questions = []
-        # 사이드바 입력값 싹 지우기
-        st.session_state.input_candidate = ""
-        st.session_state.input_jd_url = ""
-        st.session_state.input_jd_txt = ""
-        st.session_state.input_feedback = ""
-        st.session_state.input_agree = False
-        st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0] # 레벨은 첫 번째로 원복
-        st.session_state.uploader_key += 1 # 이력서 파일 비우기
-        st.rerun()
+    # [에러 해결 적용] 버튼을 누르면 화면을 그리기 전에 미리 reset_all_inputs 함수 실행!
+    st.button("🗑️ 초기화", use_container_width=True, on_click=reset_all_inputs)
 
     st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
     if st.button("🚪 로그아웃", help="인증 화면으로 돌아갑니다"):
@@ -335,9 +334,8 @@ def render_notes():
             
         st.download_button("💾 결과 텍스트로 저장하기 (.txt)", txt_content, f"면접기록_{candidate_name}.txt", type="primary", use_container_width=True)
 
-# [핵심 수정] 단독 모드일 때 너무 넓게 퍼지지 않도록 중앙 정렬 및 여백(Columns) 추가!
 if st.session_state.view_mode == "QuestionWide": 
-    _, col_center, _ = st.columns([1, 3, 1]) # 양옆 1 비율의 여백, 중앙 3 비율 활용
+    _, col_center, _ = st.columns([1, 3, 1])
     with col_center:
         render_questions()
 elif st.session_state.view_mode == "NoteWide": 
