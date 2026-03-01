@@ -60,6 +60,9 @@ if "user_code" not in st.session_state: st.session_state.user_code = ""
 if "user_nickname" not in st.session_state: st.session_state.user_nickname = ""
 if "user_key" not in st.session_state: st.session_state.user_key = ""
 
+# [핵심] 사이드바 파일 업로더 초기화를 위한 고유 키(Key) 생성
+if "uploader_key" not in st.session_state: st.session_state.uploader_key = 0
+
 for key in ["ai_questions", "selected_questions", "view_mode", "temp_setting"]:
     if key not in st.session_state:
         if key == "ai_questions": st.session_state[key] = {"Transform": [], "Tomorrow": [], "Together": []}
@@ -117,8 +120,6 @@ if not st.session_state.authenticated:
     st.stop()
 
 # --- 5. 핵심 기능 함수 ---
-
-# [핵심 수정] JD를 매번 불러오면서 생기는 렉(로딩)을 없애기 위해 캐시(기억장치) 적용!
 @st.cache_data(ttl=3600)
 def fetch_jd(url):
     try:
@@ -183,30 +184,32 @@ with st.sidebar:
         st.session_state.user_key = st.text_input("API 키 입력", value=st.session_state.user_key, type="password")
         
     st.markdown('<div class="security-alert">🚨 <b>보안 주의사항</b><br>민감 정보는 마스킹 후 업로드하세요.</div>', unsafe_allow_html=True)
-    candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력")
-    selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()))
+    
+    # [핵심 수정] 초기화를 위해 모든 위젯에 고유 Key(이름표) 부여!
+    candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력", key="input_candidate")
+    selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
     st.subheader("2. JD (채용공고)")
     tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
     with tab1:
-        url_in = st.text_input("URL 입력")
+        url_in = st.text_input("URL 입력", key="input_jd_url")
         jd_fetched = fetch_jd(url_in) if url_in else None
-    with tab2: jd_txt_area = st.text_area("내용 붙여넣기", height=100)
+    with tab2: 
+        jd_txt_area = st.text_area("내용 붙여넣기", height=100, key="input_jd_txt")
     jd_final = jd_txt_area if jd_txt_area else jd_fetched
 
     st.subheader("3. 이력서 업로드")
-    resume_file = st.file_uploader("파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed")
+    resume_file = st.file_uploader("파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
     
     st.subheader("4. 이전 면접(실무) 전달사항 (선택)")
-    tech_feedback = st.text_area("확인 요망 사항", placeholder="예: 협업 시 갈등을 어떻게 해결했는지 더 깊게 검증해 주세요.", height=80, label_visibility="collapsed")
+    tech_feedback = st.text_area("확인 요망 사항", placeholder="예: 협업 시 갈등을 어떻게 해결했는지 더 깊게 검증해 주세요.", height=80, label_visibility="collapsed", key="input_feedback")
 
     st.divider()
-    agree = st.checkbox("✅ 민감 정보 없음을 확인했습니다.")
+    agree = st.checkbox("✅ 민감 정보 없음을 확인했습니다.", key="input_agree")
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
             with st.spinner("⚡ 지원자의 가치관을 파헤칠 컬처핏 질문을 고민 중입니다..."):
-                
                 current_api_key = st.session_state.user_key
 
                 def fetch_cat(cat, api_key):
@@ -223,10 +226,18 @@ with st.sidebar:
 
     st.divider()
     
-    # [복구 완료] 소중한 초기화 버튼 부활!
+    # [핵심 수정] 사이드바 데이터까지 완벽하게 비워주는 '초기화' 로직!
     if st.button("🗑️ 초기화", use_container_width=True):
-        for k in ["ai_questions", "selected_questions"]: 
-            st.session_state[k] = {"Transform": [], "Tomorrow": [], "Together": []} if k=="ai_questions" else []
+        st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
+        st.session_state.selected_questions = []
+        # 사이드바 입력값 싹 지우기
+        st.session_state.input_candidate = ""
+        st.session_state.input_jd_url = ""
+        st.session_state.input_jd_txt = ""
+        st.session_state.input_feedback = ""
+        st.session_state.input_agree = False
+        st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0] # 레벨은 첫 번째로 원복
+        st.session_state.uploader_key += 1 # 이력서 파일 비우기
         st.rerun()
 
     st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
@@ -324,8 +335,15 @@ def render_notes():
             
         st.download_button("💾 결과 텍스트로 저장하기 (.txt)", txt_content, f"면접기록_{candidate_name}.txt", type="primary", use_container_width=True)
 
-if st.session_state.view_mode == "QuestionWide": render_questions()
-elif st.session_state.view_mode == "NoteWide": render_notes()
+# [핵심 수정] 단독 모드일 때 너무 넓게 퍼지지 않도록 중앙 정렬 및 여백(Columns) 추가!
+if st.session_state.view_mode == "QuestionWide": 
+    _, col_center, _ = st.columns([1, 3, 1]) # 양옆 1 비율의 여백, 중앙 3 비율 활용
+    with col_center:
+        render_questions()
+elif st.session_state.view_mode == "NoteWide": 
+    _, col_center, _ = st.columns([1, 3, 1])
+    with col_center:
+        render_notes()
 else:
     cl, cr = st.columns([1.1, 1])
     with cl: render_questions()
