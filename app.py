@@ -210,7 +210,7 @@ with st.sidebar:
     st.subheader("3. 이력서 업로드")
     resume_file = st.file_uploader("파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
     
-    st.subheader("4. 이전 면접(실무) 전달사항 (선택)")
+    st.subheader("4. 이전 면접 전달사항 (선택)")
     tech_feedback = st.text_area("확인 요망 사항", placeholder="예: 협업 시 갈등을 어떻게 해결했는지 더 깊게 검증해 주세요.", height=80, label_visibility="collapsed", key="input_feedback")
 
     st.divider()
