@@ -67,7 +67,7 @@ for key in ["ai_questions", "selected_questions", "view_mode", "temp_setting"]:
         elif key == "view_mode": st.session_state[key] = "Standard"
         elif key == "temp_setting": st.session_state[key] = 0.7
 
-# [핵심 1] 이미지의 빨간 박스 내용으로 가치 기준 완벽 세팅
+# 이미지의 빨간 박스 내용으로 가치 기준 완벽 세팅
 BAR_RAISER_CRITERIA = {
     "Transform": "Enduring Value Creation (시간이 지날수록 더 큰 가치를 만들어내는 솔루션을 구축합니다.)",
     "Tomorrow": "Forward Thinking (미래를 고려해 확장성과 지속성을 갖춘 솔루션을 구축합니다.)",
@@ -117,7 +117,7 @@ if not st.session_state.authenticated:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 (컬처핏 맞춤 프롬프트 대공사 ✨) ---
+# --- 5. 핵심 기능 함수 (질문/의도 직관성 극대화 ✨) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -135,21 +135,21 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     value_desc = BAR_RAISER_CRITERIA[category]
     feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
     
-    # [핵심 2] AI의 멱살을 잡고 '컬처핏'으로만 방향을 트는 강력한 프롬프트!
+    # [핵심 1] 어려운 말 빼고 직관적이고 쉬운 단어로 쓰도록 강력 통제!
     prompt = f"""
     [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
     [Target] 지원 레벨: {level} ({level_desc})
     [Core Value to Test] {category} : {value_desc}
-    [Task] 지원자의 이력서와 JD를 분석하여, 해당 Core Value에 부합하는 인재인지 검증하는 '행동 기반(Behavioral)' 면접 질문 {count}개를 JSON 포맷으로 생성하세요.
+    [Task] 지원자의 이력서와 JD를 분석하여, 해당 Core Value에 부합하는 인재인지 검증하는 면접 질문 {count}개를 JSON 포맷으로 생성하세요.
     
     [CRITICAL RULES - MUST OBEY]
-    1. **절대 실무 능력이나 기술적 지식(Hard Skill)을 묻지 마세요.** (예: "이 프로젝트에서 사용한 프레임워크는 무엇인가요?" -> 금지)
-    2. 지원자의 과거 경험(이력서)을 소재로 삼되, 오직 **'가치관, 태도, 문제 해결 방식, 협업 방식(Culture Fit)'**을 파헤치는 질문만 작성하세요.
-    3. 구구절절한 배경 설명이나 대화형 인사말을 빼고, **면접관이 대본으로 바로 읽을 수 있는 자연스럽고 정중한 구어체로 1~2문장**으로 짧게 작성하세요.
+    1. 절대 실무 능력이나 기술적 지식(Hard Skill)을 묻지 마세요.
+    2. 어려운 HR 전문 용어나 추상적인 단어는 철저히 배제하고, **누구나 이해하기 쉬운 일상적이고 직관적인 단어**로만 질문하세요.
+    3. 구구절절한 서론을 빼고, 면접관이 대본으로 바로 읽을 수 있는 **편안한 구어체(1~2문장)**로 짧게 작성하세요.
     4. {feedback_instruction}
     
     [Output Format] 
-    JSON: [{{'q': '질문 (1~2문장 뼈대만)', 'i': '이 질문을 통해 검증하려는 태도나 가치관 (의도)'}}]
+    JSON: [{{'q': '면접관이 바로 읽을 수 있는 쉽고 간결한 질문', 'i': '왜 이 질문을 해야 하는지 면접관이 단번에 이해할 수 있는 명확한 의도 (1줄)'}}]
     """
     
     try:
@@ -240,7 +240,6 @@ def render_questions():
         st.info("👈 사이드바 정보를 채운 후 버튼을 눌러주세요.")
         return
     for cat in ["Transform", "Tomorrow", "Together"]:
-        # 카테고리명 옆에 한글 설명도 같이 띄워줍니다!
         desc = BAR_RAISER_CRITERIA[cat].split('(')[0].strip()
         with st.expander(f"📌 {cat} ({desc})", expanded=False):
             
@@ -291,8 +290,10 @@ def render_notes():
     for idx, item in enumerate(st.session_state.selected_questions):
         st.markdown(f"**[{item.get('cat','Custom')}] 질문 {idx+1}**")
         
-        st.session_state.selected_questions[idx]['q'] = st.text_area("질문", value=item.get('q',''), height=70, key=f"aq_{idx}", label_visibility="collapsed")
-        st.session_state.selected_questions[idx]['memo'] = st.text_area("메모/답변", value=item.get('memo',''), placeholder="지원자 답변 및 평가 메모...", height=120, key=f"am_{idx}", label_visibility="collapsed")
+        # [핵심 2] 질문 텍스트칸 높이(height)를 100으로 키워 스크롤 없이 한눈에 보이게 수정!
+        st.session_state.selected_questions[idx]['q'] = st.text_area("질문", value=item.get('q',''), height=100, key=f"aq_{idx}", label_visibility="collapsed")
+        # 메모칸 높이도 200으로 시원하게 확장!
+        st.session_state.selected_questions[idx]['memo'] = st.text_area("메모/답변", value=item.get('memo',''), placeholder="지원자 답변 및 평가 메모...", height=200, key=f"am_{idx}", label_visibility="collapsed")
         
         if st.button("🗑️ 삭제", key=f"del_{idx}"): 
             st.session_state.selected_questions.pop(idx); st.rerun()
@@ -314,7 +315,8 @@ def render_notes():
             txt_content += f"A (답변 및 메모) :\n{cur_a}\n"
             txt_content += f"=========================================\n\n"
             
-        st.download_button("💾 예쁘게 결과 저장하기 (.txt)", txt_content, f"면접기록_{candidate_name}.txt", type="primary", use_container_width=True)
+        # [핵심 3] 버튼 문구 프로페셔널하게 변경
+        st.download_button("💾 결과 텍스트로 저장하기 (.txt)", txt_content, f"면접기록_{candidate_name}.txt", type="primary", use_container_width=True)
 
 if st.session_state.view_mode == "QuestionWide": render_questions()
 elif st.session_state.view_mode == "NoteWide": render_notes()
