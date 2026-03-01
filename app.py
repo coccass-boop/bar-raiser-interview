@@ -67,7 +67,12 @@ for key in ["ai_questions", "selected_questions", "view_mode", "temp_setting"]:
         elif key == "view_mode": st.session_state[key] = "Standard"
         elif key == "temp_setting": st.session_state[key] = 0.7
 
-BAR_RAISER_CRITERIA = {"Transform": "Create Enduring Value", "Tomorrow": "Forward Thinking", "Together": "Trust & Growth"}
+# [핵심 1] 이미지의 빨간 박스 내용으로 가치 기준 완벽 세팅
+BAR_RAISER_CRITERIA = {
+    "Transform": "Enduring Value Creation (시간이 지날수록 더 큰 가치를 만들어내는 솔루션을 구축합니다.)",
+    "Tomorrow": "Forward Thinking (미래를 고려해 확장성과 지속성을 갖춘 솔루션을 구축합니다.)",
+    "Together": "Trust & Growth (서로의 발전을 지원하며 함께 성장합니다.)"
+}
 LEVEL_GUIDELINES = {
     "IC-L3": "[기본기 실무자] 가이드 하 업무 수행.", "IC-L4": "[자기완결 실무자] 독립적 계획/실행.",
     "IC-L5": "[핵심 전문가] 최적 대안 제시, 복잡 문제 해결.", "IC-L6": "[선도적 전문가] 성과 선순환 구조 구축.",
@@ -112,7 +117,7 @@ if not st.session_state.authenticated:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 (실무면접 전달사항 반영) ---
+# --- 5. 핵심 기능 함수 (컬처핏 맞춤 프롬프트 대공사 ✨) ---
 def fetch_jd(url):
     try:
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -122,17 +127,30 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-# [수정] tech_feedback 파라미터 추가
 def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", count=5):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
     if not final_api_key: return []
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
+    value_desc = BAR_RAISER_CRITERIA[category]
+    feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
     
-    # 전달사항이 있으면 프롬프트에 강력하게 주입!
-    feedback_instruction = f" **[Previous Interview Feedback]: {tech_feedback}. Make sure to incorporate questions that strictly verify these specific feedback points.**" if tech_feedback else ""
+    # [핵심 2] AI의 멱살을 잡고 '컬처핏'으로만 방향을 트는 강력한 프롬프트!
+    prompt = f"""
+    [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
+    [Target] 지원 레벨: {level} ({level_desc})
+    [Core Value to Test] {category} : {value_desc}
+    [Task] 지원자의 이력서와 JD를 분석하여, 해당 Core Value에 부합하는 인재인지 검증하는 '행동 기반(Behavioral)' 면접 질문 {count}개를 JSON 포맷으로 생성하세요.
     
-    prompt = f"[Role] Bar Raiser Interviewer. [Target] {level} ({level_desc}). [Value] {BAR_RAISER_CRITERIA[category]}. Analyze Resume/JD.{feedback_instruction} Create {count} Questions JSON: [{{'q': '질문', 'i': '의도'}}]. **[CRITICAL RULE] 'q'(질문)는 면접관이 대본으로 바로 쓸 수 있는 자연스럽고 정중한 구어체로 작성하되, 불필요한 인사말이나 서론은 빼고 핵심만 1~2문장으로 간결하게 작성하세요.**"
+    [CRITICAL RULES - MUST OBEY]
+    1. **절대 실무 능력이나 기술적 지식(Hard Skill)을 묻지 마세요.** (예: "이 프로젝트에서 사용한 프레임워크는 무엇인가요?" -> 금지)
+    2. 지원자의 과거 경험(이력서)을 소재로 삼되, 오직 **'가치관, 태도, 문제 해결 방식, 협업 방식(Culture Fit)'**을 파헤치는 질문만 작성하세요.
+    3. 구구절절한 배경 설명이나 대화형 인사말을 빼고, **면접관이 대본으로 바로 읽을 수 있는 자연스럽고 정중한 구어체로 1~2문장**으로 짧게 작성하세요.
+    4. {feedback_instruction}
+    
+    [Output Format] 
+    JSON: [{{'q': '질문 (1~2문장 뼈대만)', 'i': '이 질문을 통해 검증하려는 태도나 가치관 (의도)'}}]
+    """
     
     try:
         file_bytes = resume_file.getvalue()
@@ -178,7 +196,6 @@ with st.sidebar:
     st.subheader("3. 이력서 업로드")
     resume_file = st.file_uploader("파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed")
     
-    # [신규 추가] 실무면접 전달사항 입력칸
     st.subheader("4. 이전 면접(실무) 전달사항 (선택)")
     tech_feedback = st.text_area("확인 요망 사항", placeholder="예: 협업 시 갈등을 어떻게 해결했는지 더 깊게 검증해 주세요.", height=80, label_visibility="collapsed")
 
@@ -187,12 +204,11 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("⚡ 3개의 핵심 가치를 동시에 분석 중입니다..."):
+            with st.spinner("⚡ 지원자의 가치관을 파헤칠 컬처핏 질문을 고민 중입니다..."):
                 
                 current_api_key = st.session_state.user_key
 
                 def fetch_cat(cat, api_key):
-                    # tech_feedback 변수를 함께 넘겨줍니다!
                     return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, count=5)
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -224,13 +240,14 @@ def render_questions():
         st.info("👈 사이드바 정보를 채운 후 버튼을 눌러주세요.")
         return
     for cat in ["Transform", "Tomorrow", "Together"]:
-        with st.expander(f"📌 {cat} ({BAR_RAISER_CRITERIA[cat]})", expanded=False):
+        # 카테고리명 옆에 한글 설명도 같이 띄워줍니다!
+        desc = BAR_RAISER_CRITERIA[cat].split('(')[0].strip()
+        with st.expander(f"📌 {cat} ({desc})", expanded=False):
             
             b1, b2 = st.columns(2)
             with b1:
                 if st.button("🔄 전체 새로고침", key=f"ref_all_{cat}", use_container_width=True):
                     with st.spinner("새로 뽑는 중..."):
-                        # 새로고침 시에도 전달사항을 반영합니다.
                         st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, count=5)
                     st.rerun()
             with b2:
