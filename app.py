@@ -191,8 +191,12 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
                         return [{"q": "🚨 AI 양식 오류", "i": "AI가 규격에 맞지 않는 답변을 했습니다. 다시 뽑기를 눌러주세요."}]
                 except Exception as e:
                     return [{"q": "🚨 분석 중 에러 발생", "i": "다시 뽑기를 눌러주세요."}]
-            elif res.status_code in [429, 500, 503]:
-                time.sleep(4) # 과부하 시 대기 시간 증가
+            elif res.status_code == 429:
+                # [핵심] 과부하 시 휴식 시간을 대폭 늘려 안정성 확보! (기본 5초 대기)
+                time.sleep(5 + attempt * 2)
+                continue
+            elif res.status_code in [500, 503]:
+                time.sleep(3)
                 continue
             else:
                 return [{"q": f"🚨 구글 서버 접속 오류 ({res.status_code})", "i": "잠시 후 다시 시도해주세요."}]
@@ -206,7 +210,7 @@ def reset_all_inputs():
     st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
     st.session_state.selected_questions = []
     if "input_candidate" in st.session_state: st.session_state.input_candidate = ""
-    if "input_jd_txt" in st.session_state: st.session_state.input_jd_txt = "" # 스마트 입력칸 초기화
+    if "input_jd_txt" in st.session_state: st.session_state.input_jd_txt = "" 
     if "input_feedback" in st.session_state: st.session_state.input_feedback = ""
     if "input_agree" in st.session_state: st.session_state.input_agree = False
     if "input_level" in st.session_state: st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0]
@@ -222,20 +226,20 @@ with st.sidebar:
     candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력", key="input_candidate")
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
-    # [핵심] 텍스트와 URL 모두 대응하는 스마트 입력칸으로 진화!
     st.subheader("2. JD (채용공고)")
-    jd_input = st.text_area("🔗 URL 또는 📝 텍스트 입력", placeholder="채용공고 링크를 넣거나 텍스트를 복사해서 붙여넣으세요.", height=100, key="input_jd_txt")
+    # [수정] 요청하신 대로 문구를 'JD URL'로 깔끔하게 롤백했습니다!
+    jd_input = st.text_area("JD URL", placeholder="채용공고 링크를 넣거나 텍스트를 복사해서 붙여넣으세요.", height=100, key="input_jd_txt")
     
     jd_final = None
     if jd_input:
-        if jd_input.strip().startswith("http"): # http로 시작하면 자동으로 URL로 인식
+        if jd_input.strip().startswith("http"): 
             jd_fetched = fetch_jd(jd_input.strip())
             if jd_fetched:
                 jd_final = jd_fetched
             else:
                 st.warning("⚠️ 해당 채용 사이트 보안으로 링크를 읽지 못했습니다! 텍스트를 직접 복사해서 넣어주세요.")
         else:
-            jd_final = jd_input # 텍스트면 그냥 텍스트로 사용
+            jd_final = jd_input 
 
     st.subheader("3. 이력서 업로드 (필수)")
     resume_file = st.file_uploader("이력서 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
@@ -251,18 +255,19 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("⚡ 3T 핵심 가치 기반 질문을 생성 중입니다..."):
+            with st.spinner("⚡ 3T 핵심 가치 기반 질문을 생성 중입니다... (약 10~15초 소요)"):
                 current_api_key = st.session_state.user_key
 
-                # 쓰레드 시작 시간에 약간의 딜레이(0.5초)를 주어 API 과부하(429)를 방지하는 꼼수!
                 def fetch_cat_safe(cat, api_key, delay):
+                    # [핵심] 일꾼들이 구글 문을 동시에 두드리지 않도록 2초 간격으로 시차를 줍니다!
                     time.sleep(delay)
                     return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     futures = []
+                    # 0초, 2초, 4초 뒤에 각각 출발시킵니다.
                     for idx, cat in enumerate(["Transform", "Tomorrow", "Together"]):
-                        futures.append(executor.submit(fetch_cat_safe, cat, current_api_key, idx * 0.5))
+                        futures.append(executor.submit(fetch_cat_safe, cat, current_api_key, idx * 2.0))
                         
                     for future in concurrent.futures.as_completed(futures):
                         cat, result = future.result()
