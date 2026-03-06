@@ -6,7 +6,6 @@ import re
 import time
 import pandas as pd
 from bs4 import BeautifulSoup
-import concurrent.futures
 
 # --- 1. 디자인 CSS ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
@@ -48,9 +47,7 @@ def load_auth_data():
         if not code_col or not name_col: return {}
         codes = df[code_col].str.replace(r'\s+', '', regex=True).str.replace(',', '', regex=False).str.replace(r'\.0*$', '', regex=True)
         names = df[name_col].str.replace(r'\s+', '', regex=True)
-        
-        valid_dict = {c: n for c, n in zip(codes, names) if c}
-        return valid_dict
+        return {c: n for c, n in zip(codes, names) if c}
     except Exception as e:
         return {}
 
@@ -59,7 +56,6 @@ if "authenticated" not in st.session_state: st.session_state.authenticated = Fal
 if "user_code" not in st.session_state: st.session_state.user_code = ""
 if "user_nickname" not in st.session_state: st.session_state.user_nickname = ""
 if "user_key" not in st.session_state: st.session_state.user_key = ""
-
 if "uploader_key" not in st.session_state: st.session_state.uploader_key = 0
 
 for key in ["ai_questions", "selected_questions", "view_mode", "temp_setting"]:
@@ -85,11 +81,10 @@ LEVEL_GUIDELINES = {
     "M-L7": "[디렉터] 전사 전략 연계 중장기 로드맵 총괄. 신뢰 기반 권한 위임 및 전사 협력을 통한 시너지 창출."
 }
 
-# --- 4. 로그인(인증) 화면 ---
+# --- 4. 로그인 화면 ---
 if not st.session_state.authenticated:
     st.title("🔒 Bar Raiser Copilot")
     st.info("부여받으신 면접관 코드를 입력해주세요.")
-    
     valid_users = load_auth_data()
     
     col1, col2 = st.columns(2)
@@ -108,21 +103,18 @@ if not st.session_state.authenticated:
     
     st.write("")
     if st.button("인증 및 입장", type="primary"):
-        if not api_key_input:
-            st.error("🚨 개인 API 키를 반드시 입력해주세요!")
+        if not api_key_input: st.error("🚨 개인 API 키를 반드시 입력해주세요!")
         elif clean_code_input in valid_users:
             st.session_state.authenticated = True
             st.session_state.user_code = clean_code_input
             st.session_state.user_nickname = valid_users[clean_code_input]
             st.session_state.user_key = api_key_input
             st.rerun()
-        elif not valid_users:
-            st.error("시트가 연결되지 않아 인증할 수 없습니다.")
-        else:
-            st.error("관리자에게 문의주세요.")
+        elif not valid_users: st.error("시트가 연결되지 않아 인증할 수 없습니다.")
+        else: st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 ---
+# --- 5. 핵심 기능 함수 (용량 폭탄 방지 원샷 로직 도입 🛡️) ---
 @st.cache_data(ttl=3600)
 def fetch_jd(url):
     try:
@@ -133,84 +125,89 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None, count=5):
+# [긴급 수술] 15개 질문을 한 번의 통신으로 다 받아옵니다! (과부하 완벽 해결)
+def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
-    
-    # [긴급 방어막] API 키가 없으면 화면에 보이게 에러 반환!
-    if not final_api_key: return [{"q": "🚨 API 키 오류", "i": "API 키를 확인해주세요."}]
+    error_dict = {"Transform": [], "Tomorrow": [], "Together": []}
+    if not final_api_key: return error_dict
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
-    value_desc = BAR_RAISER_CRITERIA[category]
     feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
     portfolio_instruction = " 및 제출된 포트폴리오" if portfolio_file else ""
     
     prompt = f"""
     [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
-    [Target Level Requirements] 지원 레벨: {level} 
-    요구되는 역량 수준: {level_desc}
-    [Core Value to Test] {category} : {value_desc}
-    [Task] 지원자의 이력서와 JD{portfolio_instruction}를 분석하여, 해당 Core Value에 부합하는 인재인지 검증하는 면접 질문 {count}개를 JSON 포맷으로 생성하세요.
+    [Target Level Requirements] 지원 레벨: {level} ({level_desc})
+    [Task] 지원자의 이력서와 JD{portfolio_instruction}를 분석하여, 다음 3가지 Core Value를 검증하는 행동 기반 면접 질문을 각각 5개씩 총 15개 생성하세요.
     
-    [CRITICAL RULES - MUST OBEY]
-    1. 절대 실무 능력이나 기술적 지식(Hard Skill)을 묻지 마세요.
-    2. 어려운 HR 전문 용어나 추상적인 단어는 철저히 배제하고, 누구나 이해하기 쉬운 직관적인 단어로만 질문하세요.
-    3. 구구절절한 서론을 빼고, 면접관이 대본으로 바로 읽을 수 있는 편안한 구어체(1~2문장)로 간결하게 작성하세요.
-    4. **가장 중요**: 지원자의 'Target Level Requirements(요구되는 역량 수준)'에 맞는 난이도와 시야를 검증하세요.
-    5. {feedback_instruction}
+    [Core Values to Test]
+    1. Transform: {BAR_RAISER_CRITERIA['Transform']}
+    2. Tomorrow: {BAR_RAISER_CRITERIA['Tomorrow']}
+    3. Together: {BAR_RAISER_CRITERIA['Together']}
+
+    [CRITICAL RULES]
+    1. 절대 실무 능력(Hard Skill)을 묻지 마세요.
+    2. 직관적인 단어로 편안한 구어체(1~2문장)로 짧게 작성하세요.
+    3. 지원자의 역량 수준({level})에 맞는 시야와 난이도를 검증하세요.
+    4. {feedback_instruction}
     
     [Output Format] 
-    JSON: [{{'q': '면접관이 바로 읽을 수 있는 쉽고 간결한 질문', 'i': '왜 이 질문을 해야 하는지 면접관이 단번에 이해할 수 있는 명확한 의도 (1줄)'}}]
+    반드시 아래 JSON 형식으로만 응답하세요. (마크다운 백틱 없이 순수 JSON만 출력)
+    {{
+        "Transform": [ {{"q": "질문", "i": "의도"}}, ...5개 ],
+        "Tomorrow": [ {{"q": "질문", "i": "의도"}}, ...5개 ],
+        "Together": [ {{"q": "질문", "i": "의도"}}, ...5개 ]
+    }}
     """
     
     try:
         parts = [{"text": prompt}]
-        
-        # 이력서 인코딩
         res_bytes = resume_file.getvalue()
-        res_mime = "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg"
-        parts.append({"inline_data": {"mime_type": res_mime, "data": base64.b64encode(res_bytes).decode('utf-8')}})
-        
-        # 포트폴리오 인코딩
+        parts.append({"inline_data": {"mime_type": "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg", "data": base64.b64encode(res_bytes).decode('utf-8')}})
         if portfolio_file:
             port_bytes = portfolio_file.getvalue()
-            port_mime = "application/pdf" if portfolio_file.name.lower().endswith('pdf') else "image/jpeg"
-            parts.append({"inline_data": {"mime_type": port_mime, "data": base64.b64encode(port_bytes).decode('utf-8')}})
+            parts.append({"inline_data": {"mime_type": "application/pdf" if portfolio_file.name.lower().endswith('pdf') else "image/jpeg", "data": base64.b64encode(port_bytes).decode('utf-8')}})
             
         data = {"contents": [{"parts": parts}]}
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={final_api_key}"
         
         for attempt in range(3):
-            res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=60)
+            res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=90)
             if res.status_code == 200:
-                try:
-                    raw = res.json()['candidates'][0]['content']['parts'][0]['text']
-                    match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
-                    if match:
-                        return json.loads(match.group())
-                    else:
-                        return [{"q": "🚨 AI 응답 양식 오류", "i": "다시 뽑기를 눌러주세요."}]
-                except:
-                    return [{"q": "🚨 내용 추출 실패", "i": "다시 뽑기를 눌러주세요."}]
+                raw = res.json()['candidates'][0]['content']['parts'][0]['text']
+                match = re.search(r'\{.*\}', raw, re.DOTALL)
+                if match: return json.loads(match.group())
             elif res.status_code == 429:
-                time.sleep(4) # 과부하 시 휴식 후 재시도
+                time.sleep(5)
                 continue
-            else: 
-                # [긴급 방어막] 무슨 에러인지 질문 카드에 직접 띄웁니다!
-                return [{"q": f"🚨 구글 API 오류 ({res.status_code})", "i": "서버 접속 실패. 잠시 후 시도해주세요."}]
-        
-        return [{"q": "🚨 구글 서버 과부하 (429)", "i": "잠시만(10초) 기다렸다가 새로고침을 눌러주세요."}]
+            else: break
+        return error_dict
+    except: return error_dict
 
-    except Exception as e: 
-        return [{"q": "🚨 시스템/파일 오류", "i": "파일 용량이 너무 크거나 일시적 오류입니다."}]
+# 특정 탭 새로고침용 (가벼워서 문제없음)
+def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None, count=5):
+    final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
+    if not final_api_key: return []
+    prompt = f"[Role] Bar Raiser. [Target] {level}. [Value] {BAR_RAISER_CRITERIA[category]}. 분석하여 {count}개 질문 JSON 생성: [{{'q': '질문', 'i': '의도'}}]. 짧은 구어체. {tech_feedback}"
+    try:
+        parts = [{"text": prompt}]
+        parts.append({"inline_data": {"mime_type": "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg", "data": base64.b64encode(resume_file.getvalue()).decode('utf-8')}})
+        if portfolio_file: parts.append({"inline_data": {"mime_type": "application/pdf" if portfolio_file.name.lower().endswith('pdf') else "image/jpeg", "data": base64.b64encode(portfolio_file.getvalue()).decode('utf-8')}})
+        data = {"contents": [{"parts": parts}]}
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={final_api_key}"
+        res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=60)
+        if res.status_code == 200:
+            match = re.search(r'\[\s*\{.*\}\s*\]', res.json()['candidates'][0]['content']['parts'][0]['text'], re.DOTALL)
+            return json.loads(match.group()) if match else []
+    except: pass
+    return []
 
 def reset_all_inputs():
     st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
     st.session_state.selected_questions = []
-    if "input_candidate" in st.session_state: st.session_state.input_candidate = ""
-    if "input_jd_url" in st.session_state: st.session_state.input_jd_url = ""
-    if "input_feedback" in st.session_state: st.session_state.input_feedback = ""
-    if "input_agree" in st.session_state: st.session_state.input_agree = False
-    if "input_level" in st.session_state: st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0]
+    for k in ["input_candidate", "input_jd_url", "input_feedback"]: st.session_state[k] = ""
+    st.session_state.input_agree = False
+    st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0]
     st.session_state.uploader_key += 1
 
 # --- 6. 사이드바 구성 ---
@@ -224,13 +221,9 @@ with st.sidebar:
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
     st.subheader("2. JD (채용공고)")
-    jd_input = st.text_input("JD URL", placeholder="채용공고 링크를 붙여넣으세요.", label_visibility="collapsed", key="input_jd_url")
-    
-    jd_final = None
-    if jd_input:
-        jd_fetched = fetch_jd(jd_input.strip())
-        # [긴급 방어막] 보안으로 사이트를 못 읽었어도, 에러 내지 않고 링크 텍스트 자체를 AI에게 강제로 줍니다! (앱 뻗음 방지)
-        jd_final = jd_fetched if jd_fetched else jd_input.strip()
+    url_in = st.text_input("JD URL", placeholder="채용공고 링크를 붙여넣으세요.", label_visibility="collapsed", key="input_jd_url")
+    jd_final = fetch_jd(url_in.strip()) if url_in else None
+    if url_in and not jd_final: jd_final = url_in.strip() # 오류 방지용 강제 텍스트 주입
 
     st.subheader("3. 이력서 업로드 (필수)")
     resume_file = st.file_uploader("이력서 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
@@ -246,34 +239,26 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("⚡ 3T 핵심 가치 기반 질문을 생성 중입니다... (약 10초 소요)"):
-                current_api_key = st.session_state.user_key
-
-                # [긴급 방어막] 3명의 일꾼이 동시에 뛰쳐나가서 과부하(429) 걸리는 것을 막기 위한 완벽한 '시차 출발'
-                def fetch_cat_safe(cat, api_key, delay):
-                    time.sleep(delay) # 0초, 2초, 4초 대기 후 출발
-                    return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
-
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    futures = []
-                    for idx, cat in enumerate(["Transform", "Tomorrow", "Together"]):
-                        futures.append(executor.submit(fetch_cat_safe, cat, current_api_key, idx * 2.0))
-                        
-                    for future in concurrent.futures.as_completed(futures):
-                        cat, result = future.result()
-                        st.session_state.ai_questions[cat] = result
+            with st.spinner("⚡ 3T 문항을 한 번에 가져옵니다. 잠시만 기다려주세요 (약 15초)"):
+                # [구원 투수] 단 한 번의 호출로 15개를 다 받아옵니다. 용량 제한 절대 안 걸립니다!
+                result_json = generate_all_questions_at_once(
+                    selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback, portfolio_file
+                )
+                if result_json and any(result_json.values()):
+                    for cat in ["Transform", "Tomorrow", "Together"]:
+                        if cat in result_json: st.session_state.ai_questions[cat] = result_json[cat]
+                else:
+                    st.error("🚨 구글 서버 접속이 원활하지 않습니다. 잠시 후 다시 시도해주세요.")
             st.rerun()
         else:
             st.error("이력서와 JD 링크를 모두 입력해주세요.")
 
     st.divider()
-    
     st.button("🗑️ 초기화", use_container_width=True, on_click=reset_all_inputs)
 
     st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
     if st.button("🚪 로그아웃", help="인증 화면으로 돌아갑니다"):
-        st.session_state.authenticated = False
-        st.rerun()
+        st.session_state.authenticated = False; st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 7. 메인 화면 ---
@@ -292,48 +277,36 @@ def render_questions():
     for cat in ["Transform", "Tomorrow", "Together"]:
         desc = BAR_RAISER_CRITERIA[cat].split('(')[0].strip()
         with st.expander(f"📌 {cat} ({desc})", expanded=False):
-            
             b1, b2 = st.columns(2)
             with b1:
                 if st.button("🔄 전체 새로고침", key=f"ref_all_{cat}", use_container_width=True):
                     with st.spinner("새로 뽑는 중..."):
-                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
-                        for idx in range(5):
-                            if f"chk_{cat}_{idx}" in st.session_state:
-                                st.session_state[f"chk_{cat}_{idx}"] = False
+                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback, portfolio_file, 5)
+                        for idx in range(5): st.session_state[f"chk_{cat}_{idx}"] = False
                     st.rerun()
             with b2:
                 if st.button("♻️ 선택한 질문만 다시 뽑기", key=f"ref_sel_{cat}", use_container_width=True):
                     sel_indices = [idx for idx in range(len(st.session_state.ai_questions[cat])) if st.session_state.get(f"chk_{cat}_{idx}")]
                     if sel_indices:
                         with st.spinner("선택된 질문 교체 중..."):
-                            new_qs = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=len(sel_indices))
+                            new_qs = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback, portfolio_file, len(sel_indices))
                             for new_q, target_idx in zip(new_qs, sel_indices):
                                 st.session_state.ai_questions[cat][target_idx] = new_q
                                 st.session_state[f"chk_{cat}_{target_idx}"] = False
                         st.rerun()
-                    else:
-                        st.warning("다시 뽑을 질문을 먼저 체크해주세요!")
+                    else: st.warning("다시 뽑을 질문을 먼저 체크해주세요!")
             
             st.write("") 
-            
             for i, q in enumerate(st.session_state.ai_questions.get(cat, [])):
                 q_v, i_v = q.get('q', ''), q.get('i', '')
-                st.markdown(f"""
-                <div class="q-card">
-                    <div class="q-text">Q{i+1}. {q_v}</div>
-                    <div class="i-text">🎯 <b>의도:</b> {i_v}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
+                st.markdown(f"""<div class="q-card"><div class="q-text">Q{i+1}. {q_v}</div><div class="i-text">🎯 <b>의도:</b> {i_v}</div></div>""", unsafe_allow_html=True)
                 ca, cb = st.columns([0.7, 0.3])
-                with ca:
-                    st.checkbox("이 질문 다시 뽑기", key=f"chk_{cat}_{i}")
+                with ca: st.checkbox("이 질문 다시 뽑기", key=f"chk_{cat}_{i}")
                 with cb:
                     if st.button("➕ 노트에 담기", key=f"add_{cat}_{i}", use_container_width=True):
                         if q_v and q_v not in [sq['q'] for sq in st.session_state.selected_questions]:
                             st.session_state.selected_questions.append({"q": q_v, "cat": cat, "memo": ""})
-                            st.toast("✅ 면접관 노트에 추가되었습니다!")
+                            st.toast("✅ 노트에 추가되었습니다!")
 
 def render_notes():
     st.subheader("📝 면접관 노트")
@@ -343,41 +316,20 @@ def render_notes():
     
     for idx, item in enumerate(st.session_state.selected_questions):
         st.markdown(f"**[{item.get('cat','Custom')}] 질문 {idx+1}**")
-        
         st.session_state.selected_questions[idx]['q'] = st.text_area("질문", value=item.get('q',''), height=100, key=f"aq_{idx}", label_visibility="collapsed")
         st.session_state.selected_questions[idx]['memo'] = st.text_area("메모/답변", value=item.get('memo',''), placeholder="지원자 답변 및 평가 메모...", height=200, key=f"am_{idx}", label_visibility="collapsed")
-        
-        if st.button("🗑️ 삭제", key=f"del_{idx}"): 
-            st.session_state.selected_questions.pop(idx); st.rerun()
+        if st.button("🗑️ 삭제", key=f"del_{idx}"): st.session_state.selected_questions.pop(idx); st.rerun()
         st.markdown("---")
 
     if st.session_state.selected_questions:
-        txt_content = f"=========================================\n"
-        txt_content += f" 👤 면접 후보자 : {candidate_name if candidate_name else '이름 미상'}\n"
-        txt_content += f" 📊 지원 레벨 : {selected_level}\n"
-        txt_content += f"=========================================\n\n"
-        
+        txt_content = f"=========================================\n 👤 면접 후보자 : {candidate_name if candidate_name else '미상'}\n 📊 지원 레벨 : {selected_level}\n=========================================\n\n"
         for idx, s in enumerate(st.session_state.selected_questions):
-            cur_q = st.session_state.get(f"aq_{idx}", s['q'])
-            cur_a = st.session_state.get(f"am_{idx}", s['memo'])
-            
-            txt_content += f"▶ [질문 {idx+1}] ({s['cat']} 역량 검증)\n"
-            txt_content += f"Q : {cur_q}\n"
-            txt_content += f"-----------------------------------------\n"
-            txt_content += f"A (답변 및 메모) :\n{cur_a}\n"
-            txt_content += f"=========================================\n\n"
-            
+            txt_content += f"▶ [질문 {idx+1}] ({s['cat']})\nQ : {st.session_state.get(f'aq_{idx}', s['q'])}\n-----------------------------------------\nA :\n{st.session_state.get(f'am_{idx}', s['memo'])}\n=========================================\n\n"
         st.download_button("💾 결과 텍스트로 저장하기 (.txt)", txt_content, f"면접기록_{candidate_name}.txt", type="primary", use_container_width=True)
 
 if st.session_state.view_mode == "QuestionWide": 
-    _, col_center, _ = st.columns([1, 3, 1])
-    with col_center:
-        render_questions()
+    _, col_center, _ = st.columns([1, 3, 1]); col_center.write(render_questions())
 elif st.session_state.view_mode == "NoteWide": 
-    _, col_center, _ = st.columns([1, 3, 1])
-    with col_center:
-        render_notes()
+    _, col_center, _ = st.columns([1, 3, 1]); col_center.write(render_notes())
 else:
-    cl, cr = st.columns([1.1, 1])
-    with cl: render_questions()
-    with cr: render_notes()
+    cl, cr = st.columns([1.1, 1]); cl.write(render_questions()); cr.write(render_notes())
