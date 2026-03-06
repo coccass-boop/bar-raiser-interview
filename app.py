@@ -273,7 +273,7 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("⚡ 전체 문항을 한 번에 생성 중입니다. (약 10~15초 소요)"):
+            with st.spinner("⚡ 3T 기반으로 질문을 생성 중입니다. (약 10~15초 소요)"):
                 result_json = generate_all_questions_at_once(
                     selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback, portfolio_file
                 )
