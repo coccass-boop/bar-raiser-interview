@@ -74,8 +74,6 @@ BAR_RAISER_CRITERIA = {
     "Tomorrow": "Forward Thinking (미래를 고려해 확장성과 지속성을 갖춘 솔루션을 구축합니다.)",
     "Together": "Trust & Growth (서로의 발전을 지원하며 함께 성장합니다.)"
 }
-
-# [핵심 수정] 제공해주신 이미지 기반으로 직무 레벨별 기준을 매우 구체화하여 AI에 주입합니다!
 LEVEL_GUIDELINES = {
     "IC-L3": "[기본기 확립 실무자] 명확한 지시와 가이드 하에 단기적 업무 수행. 피드백을 성장의 기회로 삼음.",
     "IC-L4": "[자기완결성 독립적 실무자] 외부 변수에 흔들리지 않고 스스로 계획 수립/해결. 협업 요청에 해결 지향적 대응.",
@@ -135,27 +133,28 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", count=5):
+# [핵심 변경] portfolio_file 파라미터 추가!
+def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None, count=5):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
     if not final_api_key: return []
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
     value_desc = BAR_RAISER_CRITERIA[category]
     feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
+    portfolio_instruction = " 및 제출된 포트폴리오" if portfolio_file else ""
     
-    # [핵심 수정] 프롬프트에 지원 레벨별 난이도를 강제하는 규칙 추가!
     prompt = f"""
     [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
     [Target Level Requirements] 지원 레벨: {level} 
     요구되는 역량 수준: {level_desc}
     [Core Value to Test] {category} : {value_desc}
-    [Task] 지원자의 이력서와 JD를 분석하여, 해당 Core Value에 부합하는 인재인지 검증하는 면접 질문 {count}개를 JSON 포맷으로 생성하세요.
+    [Task] 지원자의 이력서와 JD{portfolio_instruction}를 분석하여, 해당 Core Value에 부합하는 인재인지 검증하는 면접 질문 {count}개를 JSON 포맷으로 생성하세요.
     
     [CRITICAL RULES - MUST OBEY]
     1. 절대 실무 능력이나 기술적 지식(Hard Skill)을 묻지 마세요.
     2. 어려운 HR 전문 용어나 추상적인 단어는 철저히 배제하고, 누구나 이해하기 쉬운 직관적인 단어로만 질문하세요.
     3. 구구절절한 서론을 빼고, 면접관이 대본으로 바로 읽을 수 있는 편안한 구어체(1~2문장)로 간결하게 작성하세요.
-    4. **가장 중요**: 지원자의 'Target Level Requirements(요구되는 역량 수준)'에 맞는 난이도와 시야를 검증하세요. (예: 주니어 레벨이면 가이드라인 수행과 협력을 묻고, 시니어/리더 레벨이면 복잡한 문제 해결, 조직 문화 개선, 이해관계자 설득 등을 물어야 함)
+    4. **가장 중요**: 지원자의 'Target Level Requirements(요구되는 역량 수준)'에 맞는 난이도와 시야를 검증하세요.
     5. {feedback_instruction}
     
     [Output Format] 
@@ -163,12 +162,25 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     """
     
     try:
-        file_bytes = resume_file.getvalue()
-        pdf_base64 = base64.b64encode(file_bytes).decode('utf-8')
-        mime_type = "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg"
+        # 프롬프트 조립 파트
+        parts = [{"text": prompt}]
+        
+        # 1. 이력서 (필수)
+        res_bytes = resume_file.getvalue()
+        res_b64 = base64.b64encode(res_bytes).decode('utf-8')
+        res_mime = "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg"
+        parts.append({"inline_data": {"mime_type": res_mime, "data": res_b64}})
+        
+        # 2. 포트폴리오 (선택적 추가)
+        if portfolio_file:
+            port_bytes = portfolio_file.getvalue()
+            port_b64 = base64.b64encode(port_bytes).decode('utf-8')
+            port_mime = "application/pdf" if portfolio_file.name.lower().endswith('pdf') else "image/jpeg"
+            parts.append({"inline_data": {"mime_type": port_mime, "data": port_b64}})
+            
+        data = {"contents": [{"parts": parts}]}
         
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={final_api_key}"
-        data = {"contents": [{"parts": [{"text": prompt}, {"inline_data": {"mime_type": mime_type, "data": pdf_base64}}]}]}
         
         for attempt in range(3):
             res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=60)
@@ -192,7 +204,7 @@ def reset_all_inputs():
     if "input_feedback" in st.session_state: st.session_state.input_feedback = ""
     if "input_agree" in st.session_state: st.session_state.input_agree = False
     if "input_level" in st.session_state: st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0]
-    st.session_state.uploader_key += 1
+    st.session_state.uploader_key += 1 # 이력서, 포트폴리오 업로더 동시 초기화
 
 # --- 6. 사이드바 구성 ---
 with st.sidebar:
@@ -216,8 +228,12 @@ with st.sidebar:
         jd_txt_area = st.text_area("내용 붙여넣기", height=100, key="input_jd_txt")
     jd_final = jd_txt_area if jd_txt_area else jd_fetched
 
-    st.subheader("3. 이력서 업로드")
-    resume_file = st.file_uploader("파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
+    st.subheader("3. 이력서 업로드 (필수)")
+    resume_file = st.file_uploader("이력서 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
+    
+    # [핵심 추가] 포트폴리오 선택 업로드 영역!
+    st.subheader("3-1. 포트폴리오 업로드 (선택)")
+    portfolio_file = st.file_uploader("포트폴리오 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"port_uploader_{st.session_state.uploader_key}")
     
     st.subheader("4. 이전 면접(실무) 전달사항 (선택)")
     tech_feedback = st.text_area("확인 요망 사항", placeholder="예: 협업 시 갈등을 어떻게 해결했는지 더 깊게 검증해 주세요.", height=80, label_visibility="collapsed", key="input_feedback")
@@ -231,7 +247,8 @@ with st.sidebar:
                 current_api_key = st.session_state.user_key
 
                 def fetch_cat(cat, api_key):
-                    return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, count=5)
+                    # portfolio_file 변수 함께 전달
+                    return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     futures = [executor.submit(fetch_cat, cat, current_api_key) for cat in ["Transform", "Tomorrow", "Together"]]
@@ -273,7 +290,8 @@ def render_questions():
             with b1:
                 if st.button("🔄 전체 새로고침", key=f"ref_all_{cat}", use_container_width=True):
                     with st.spinner("새로 뽑는 중..."):
-                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, count=5)
+                        # 새로고침 시에도 포트폴리오 전달
+                        st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
                         for idx in range(5):
                             if f"chk_{cat}_{idx}" in st.session_state:
                                 st.session_state[f"chk_{cat}_{idx}"] = False
@@ -283,7 +301,8 @@ def render_questions():
                     sel_indices = [idx for idx in range(len(st.session_state.ai_questions[cat])) if st.session_state.get(f"chk_{cat}_{idx}")]
                     if sel_indices:
                         with st.spinner("선택된 질문 교체 중..."):
-                            new_qs = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, count=len(sel_indices))
+                            # 다시 뽑기 시에도 포트폴리오 전달
+                            new_qs = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=len(sel_indices))
                             for new_q, target_idx in zip(new_qs, sel_indices):
                                 st.session_state.ai_questions[cat][target_idx] = new_q
                                 st.session_state[f"chk_{cat}_{target_idx}"] = False
