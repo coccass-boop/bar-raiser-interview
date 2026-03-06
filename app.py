@@ -192,7 +192,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
                 except Exception as e:
                     return [{"q": "🚨 분석 중 에러 발생", "i": "다시 뽑기를 눌러주세요."}]
             elif res.status_code == 429:
-                # [핵심] 과부하 시 휴식 시간을 대폭 늘려 안정성 확보! (기본 5초 대기)
                 time.sleep(5 + attempt * 2)
                 continue
             elif res.status_code in [500, 503]:
@@ -210,7 +209,8 @@ def reset_all_inputs():
     st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
     st.session_state.selected_questions = []
     if "input_candidate" in st.session_state: st.session_state.input_candidate = ""
-    if "input_jd_txt" in st.session_state: st.session_state.input_jd_txt = "" 
+    # [수정] 텍스트 입력 변수명이 input_jd_url 로 통일되었습니다.
+    if "input_jd_url" in st.session_state: st.session_state.input_jd_url = "" 
     if "input_feedback" in st.session_state: st.session_state.input_feedback = ""
     if "input_agree" in st.session_state: st.session_state.input_agree = False
     if "input_level" in st.session_state: st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0]
@@ -227,7 +227,8 @@ with st.sidebar:
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
     st.subheader("2. JD (채용공고)")
-    jd_input = st.text_area(placeholder="나인하이어 채용공고 링크를 붙여넣으세요.", height=100, key="input_jd_txt")
+    # [핵심 수정] 텍스트 에어리어(멀티라인) 삭제, 단일 텍스트 입력칸 사용 + 라벨 숨김(collapsed) + 플레이스홀더 변경
+    jd_input = st.text_input("JD URL", placeholder="채용공고 링크를 붙여넣으세요.", label_visibility="collapsed", key="input_jd_url")
     
     jd_final = None
     if jd_input:
@@ -236,9 +237,9 @@ with st.sidebar:
             if jd_fetched:
                 jd_final = jd_fetched
             else:
-                st.warning("⚠️ 해당 채용 사이트 보안으로 링크를 읽지 못했습니다! 텍스트를 직접 복사해서 넣어주세요.")
+                st.warning("⚠️ 해당 채용 사이트 보안으로 링크 내용을 읽을 수 없습니다.")
         else:
-            jd_final = jd_input 
+            st.warning("⚠️ 올바른 링크(http...) 형식으로 입력해주세요.")
 
     st.subheader("3. 이력서 업로드 (필수)")
     resume_file = st.file_uploader("이력서 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
@@ -258,13 +259,11 @@ with st.sidebar:
                 current_api_key = st.session_state.user_key
 
                 def fetch_cat_safe(cat, api_key, delay):
-                    # [핵심] 일꾼들이 구글 문을 동시에 두드리지 않도록 2초 간격으로 시차를 줍니다!
                     time.sleep(delay)
                     return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     futures = []
-                    # 0초, 2초, 4초 뒤에 각각 출발시킵니다.
                     for idx, cat in enumerate(["Transform", "Tomorrow", "Together"]):
                         futures.append(executor.submit(fetch_cat_safe, cat, current_api_key, idx * 2.0))
                         
@@ -273,7 +272,7 @@ with st.sidebar:
                         st.session_state.ai_questions[cat] = result
             st.rerun()
         elif not jd_final and jd_input:
-            st.error("JD 내용을 인식하지 못했습니다. URL 대신 텍스트를 붙여넣어 주세요!")
+            st.error("JD 링크를 정상적으로 읽지 못했습니다.")
         else:
             st.error("이력서와 JD를 모두 입력해주세요.")
 
