@@ -76,7 +76,7 @@ BAR_RAISER_CRITERIA = {
 }
 LEVEL_GUIDELINES = {
     "IC-L3": "[기본기 확립 실무자] 명확한 지시와 가이드 하에 단기적 업무 수행. 피드백을 성장의 기회로 삼음.",
-    "IC-L4": "[자기완결성 독립적 실무자] 외부 변수에 흔들리지 않고 스스로 계획 수립/해결. 협업 요청에 해결 지향적 대응.",
+    "IC-L4": "[자기완결성 독립 실무자] 외부 변수에 흔들리지 않고 스스로 계획 수립/해결. 협업 요청에 해결 지향적 대응.",
     "IC-L5": "[핵심 직무 전문가] 복잡/다면적 문제 분석 및 최적 대안 제시. 자신의 전문성으로 팀 성과에 기여 및 후배에게 긍정적 영향.",
     "IC-L6": "[선도적 전문가] 단일 유닛 성과를 넘어 부서 단위 확장(Scale-up) 시킴. 얽힌 복잡한 과제 리딩 및 이해관계자 설득.",
     "IC-L7": "[전사 혁신 주도 최고 권위자] 비즈니스 혁신 창출 및 전사적 목표 달성에 기여. C-Level 및 외부 핵심 파트너와 담판.",
@@ -133,7 +133,6 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-# [핵심 변경] portfolio_file 파라미터 추가!
 def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None, count=5):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
     if not final_api_key: return []
@@ -162,7 +161,6 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     """
     
     try:
-        # 프롬프트 조립 파트
         parts = [{"text": prompt}]
         
         # 1. 이력서 (필수)
@@ -171,7 +169,7 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
         res_mime = "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg"
         parts.append({"inline_data": {"mime_type": res_mime, "data": res_b64}})
         
-        # 2. 포트폴리오 (선택적 추가)
+        # 2. 포트폴리오 (선택)
         if portfolio_file:
             port_bytes = portfolio_file.getvalue()
             port_b64 = base64.b64encode(port_bytes).decode('utf-8')
@@ -204,16 +202,15 @@ def reset_all_inputs():
     if "input_feedback" in st.session_state: st.session_state.input_feedback = ""
     if "input_agree" in st.session_state: st.session_state.input_agree = False
     if "input_level" in st.session_state: st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0]
-    st.session_state.uploader_key += 1 # 이력서, 포트폴리오 업로더 동시 초기화
+    st.session_state.uploader_key += 1
 
 # --- 6. 사이드바 구성 ---
 with st.sidebar:
     st.title("✈️ Copilot Menu")
     st.success(f"👤 접속 완료: **{st.session_state.user_nickname}** 님")
     
-    with st.expander("💡 개인 API 키 확인 및 변경"):
-        st.session_state.user_key = st.text_input("API 키 입력", value=st.session_state.user_key, type="password")
-        
+    # [제거 완료] 불필요한 API 키 확인 탭 삭제
+    
     st.markdown('<div class="security-alert">🚨 <b>보안 주의사항</b><br>민감 정보는 마스킹 후 업로드하세요.</div>', unsafe_allow_html=True)
     
     candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력", key="input_candidate")
@@ -231,7 +228,6 @@ with st.sidebar:
     st.subheader("3. 이력서 업로드 (필수)")
     resume_file = st.file_uploader("이력서 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
     
-    # [핵심 추가] 포트폴리오 선택 업로드 영역!
     st.subheader("3-1. 포트폴리오 업로드 (선택)")
     portfolio_file = st.file_uploader("포트폴리오 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"port_uploader_{st.session_state.uploader_key}")
     
@@ -247,7 +243,6 @@ with st.sidebar:
                 current_api_key = st.session_state.user_key
 
                 def fetch_cat(cat, api_key):
-                    # portfolio_file 변수 함께 전달
                     return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -290,7 +285,6 @@ def render_questions():
             with b1:
                 if st.button("🔄 전체 새로고침", key=f"ref_all_{cat}", use_container_width=True):
                     with st.spinner("새로 뽑는 중..."):
-                        # 새로고침 시에도 포트폴리오 전달
                         st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
                         for idx in range(5):
                             if f"chk_{cat}_{idx}" in st.session_state:
@@ -301,7 +295,6 @@ def render_questions():
                     sel_indices = [idx for idx in range(len(st.session_state.ai_questions[cat])) if st.session_state.get(f"chk_{cat}_{idx}")]
                     if sel_indices:
                         with st.spinner("선택된 질문 교체 중..."):
-                            # 다시 뽑기 시에도 포트폴리오 전달
                             new_qs = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=len(sel_indices))
                             for new_q, target_idx in zip(new_qs, sel_indices):
                                 st.session_state.ai_questions[cat][target_idx] = new_q
