@@ -6,7 +6,6 @@ import re
 import time
 import pandas as pd
 from bs4 import BeautifulSoup
-import concurrent.futures
 
 # --- 1. 디자인 CSS ---
 st.set_page_config(page_title="Bar Raiser Copilot", page_icon="✈️", layout="wide")
@@ -133,12 +132,17 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None, count=5):
+# [핵심 1] 15개 질문을 한 번의 API 호출로 모두 받아오는 만능 함수 탄생!
+def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
-    if not final_api_key: return [{"q": "🚨 API 키 오류", "i": "API 키를 확인해주세요."}]
+    error_dict = {
+        "Transform": [{"q": "🚨 오류 발생", "i": "다시 시도해주세요."}],
+        "Tomorrow": [{"q": "🚨 오류 발생", "i": "다시 시도해주세요."}],
+        "Together": [{"q": "🚨 오류 발생", "i": "다시 시도해주세요."}]
+    }
+    if not final_api_key: return error_dict
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
-    value_desc = BAR_RAISER_CRITERIA[category]
     feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
     portfolio_instruction = " 및 제출된 포트폴리오" if portfolio_file else ""
     
@@ -146,18 +150,27 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
     [Target Level Requirements] 지원 레벨: {level} 
     요구되는 역량 수준: {level_desc}
-    [Core Value to Test] {category} : {value_desc}
-    [Task] 지원자의 이력서와 JD{portfolio_instruction}를 분석하여, 해당 Core Value에 부합하는 인재인지 검증하는 면접 질문 {count}개를 JSON 포맷으로 생성하세요.
+    [Task] 지원자의 이력서와 JD{portfolio_instruction}를 분석하여, 다음 3가지 Core Value를 검증하는 행동 기반 면접 질문을 각각 5개씩 총 15개 생성하세요.
     
+    [Core Values to Test]
+    1. Transform: {BAR_RAISER_CRITERIA['Transform']}
+    2. Tomorrow: {BAR_RAISER_CRITERIA['Tomorrow']}
+    3. Together: {BAR_RAISER_CRITERIA['Together']}
+
     [CRITICAL RULES - MUST OBEY]
     1. 절대 실무 능력이나 기술적 지식(Hard Skill)을 묻지 마세요.
-    2. 어려운 HR 전문 용어나 추상적인 단어는 철저히 배제하고, 누구나 이해하기 쉬운 직관적인 단어로만 질문하세요.
+    2. 어려운 HR 전문 용어나 추상적인 단어는 배제하고, 누구나 이해하기 쉬운 직관적인 단어로만 질문하세요.
     3. 구구절절한 서론을 빼고, 면접관이 대본으로 바로 읽을 수 있는 편안한 구어체(1~2문장)로 간결하게 작성하세요.
     4. **가장 중요**: 지원자의 'Target Level Requirements(요구되는 역량 수준)'에 맞는 난이도와 시야를 검증하세요.
     5. {feedback_instruction}
     
     [Output Format] 
-    JSON: [{{'q': '면접관이 바로 읽을 수 있는 쉽고 간결한 질문', 'i': '왜 이 질문을 해야 하는지 면접관이 단번에 이해할 수 있는 명확한 의도 (1줄)'}}]
+    반드시 아래 JSON 형식으로만 출력하세요. (다른 말은 일절 하지 마세요)
+    {{
+        "Transform": [ {{"q": "질문", "i": "의도(1줄)"}}, ...5개 ],
+        "Tomorrow": [ {{"q": "질문", "i": "의도(1줄)"}}, ...5개 ],
+        "Together": [ {{"q": "질문", "i": "의도(1줄)"}}, ...5개 ]
+    }}
     """
     
     try:
@@ -180,36 +193,85 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={final_api_key}"
         
         for attempt in range(3):
+            res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=90) # 시간 넉넉히
+            if res.status_code == 200:
+                try:
+                    raw = res.json()['candidates'][0]['content']['parts'][0]['text']
+                    match = re.search(r'\{.*\}', raw, re.DOTALL)
+                    if match:
+                        return json.loads(match.group())
+                    return error_dict
+                except:
+                    return error_dict
+            elif res.status_code == 429:
+                time.sleep(5)
+                continue
+            else:
+                return error_dict
+        return error_dict
+
+    except Exception as e:
+        return error_dict
+
+# 특정 카테고리만 다시 뽑을 때 사용하는 기존 함수 (가벼운 작업용)
+def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None, count=5):
+    final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
+    if not final_api_key: return [{"q": "🚨 API 키 오류", "i": "API 키를 확인해주세요."}]
+
+    level_desc = LEVEL_GUIDELINES.get(level, "")
+    value_desc = BAR_RAISER_CRITERIA[category]
+    feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
+    portfolio_instruction = " 및 제출된 포트폴리오" if portfolio_file else ""
+    
+    prompt = f"""
+    [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
+    [Target Level Requirements] 지원 레벨: {level} 
+    요구되는 역량 수준: {level_desc}
+    [Core Value to Test] {category} : {value_desc}
+    [Task] 지원자의 이력서와 JD{portfolio_instruction}를 분석하여, 해당 Core Value에 부합하는 인재인지 검증하는 면접 질문 {count}개를 JSON 포맷으로 생성하세요.
+    
+    [CRITICAL RULES - MUST OBEY]
+    1. 절대 실무 능력이나 기술적 지식(Hard Skill)을 묻지 마세요.
+    2. 직관적이고 쉬운 단어로, 편안한 구어체(1~2문장)로 간결하게 작성하세요.
+    3. **가장 중요**: 지원자의 'Target Level Requirements'에 맞는 난이도와 시야를 검증하세요.
+    4. {feedback_instruction}
+    
+    [Output Format] 
+    JSON: [{{'q': '질문', 'i': '의도 (1줄)'}}]
+    """
+    
+    try:
+        parts = [{"text": prompt}]
+        res_bytes = resume_file.getvalue()
+        parts.append({"inline_data": {"mime_type": "application/pdf" if resume_file.name.lower().endswith('pdf') else "image/jpeg", "data": base64.b64encode(res_bytes).decode('utf-8')}})
+        
+        if portfolio_file:
+            port_bytes = portfolio_file.getvalue()
+            parts.append({"inline_data": {"mime_type": "application/pdf" if portfolio_file.name.lower().endswith('pdf') else "image/jpeg", "data": base64.b64encode(port_bytes).decode('utf-8')}})
+            
+        data = {"contents": [{"parts": parts}]}
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={final_api_key}"
+        
+        for attempt in range(3):
             res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=60)
             if res.status_code == 200:
                 try:
                     raw = res.json()['candidates'][0]['content']['parts'][0]['text']
                     match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
-                    if match:
-                        return json.loads(match.group())
-                    else:
-                        return [{"q": "🚨 AI 양식 오류", "i": "AI가 규격에 맞지 않는 답변을 했습니다. 다시 뽑기를 눌러주세요."}]
-                except Exception as e:
-                    return [{"q": "🚨 분석 중 에러 발생", "i": "다시 뽑기를 눌러주세요."}]
+                    if match: return json.loads(match.group())
+                    return [{"q": "🚨 오류", "i": "다시 눌러주세요."}]
+                except: return [{"q": "🚨 오류", "i": "다시 눌러주세요."}]
             elif res.status_code == 429:
-                time.sleep(5 + attempt * 2)
+                time.sleep(5)
                 continue
-            elif res.status_code in [500, 503]:
-                time.sleep(3)
-                continue
-            else:
-                return [{"q": f"🚨 구글 서버 접속 오류 ({res.status_code})", "i": "잠시 후 다시 시도해주세요."}]
-                
-        return [{"q": "🚨 구글 AI 서버 과부하 (연속 발생)", "i": "너무 많은 요청이 몰렸습니다. 10~20초 뒤에 다시 시도해주세요."}]
-
-    except Exception as e:
-        return [{"q": "🚨 시스템 오류 발생", "i": "첨부된 파일이 너무 크거나 일시적인 문제일 수 있습니다."}]
+            else: return [{"q": "🚨 오류", "i": "잠시 후 시도해주세요."}]
+        return [{"q": "🚨 과부하", "i": "잠시 후 시도해주세요."}]
+    except: return [{"q": "🚨 오류", "i": "파일을 확인해주세요."}]
 
 def reset_all_inputs():
     st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
     st.session_state.selected_questions = []
     if "input_candidate" in st.session_state: st.session_state.input_candidate = ""
-    # [수정] 텍스트 입력 변수명이 input_jd_url 로 통일되었습니다.
     if "input_jd_url" in st.session_state: st.session_state.input_jd_url = "" 
     if "input_feedback" in st.session_state: st.session_state.input_feedback = ""
     if "input_agree" in st.session_state: st.session_state.input_agree = False
@@ -227,7 +289,6 @@ with st.sidebar:
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
     st.subheader("2. JD (채용공고)")
-    # [핵심 수정] 텍스트 에어리어(멀티라인) 삭제, 단일 텍스트 입력칸 사용 + 라벨 숨김(collapsed) + 플레이스홀더 변경
     jd_input = st.text_input("JD URL", placeholder="채용공고 링크를 붙여넣으세요.", label_visibility="collapsed", key="input_jd_url")
     
     jd_final = None
@@ -255,21 +316,16 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("⚡ 3T 핵심 가치 기반 질문을 생성 중입니다... (약 10~15초 소요)"):
-                current_api_key = st.session_state.user_key
-
-                def fetch_cat_safe(cat, api_key, delay):
-                    time.sleep(delay)
-                    return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
-
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    futures = []
-                    for idx, cat in enumerate(["Transform", "Tomorrow", "Together"]):
-                        futures.append(executor.submit(fetch_cat_safe, cat, current_api_key, idx * 2.0))
-                        
-                    for future in concurrent.futures.as_completed(futures):
-                        cat, result = future.result()
-                        st.session_state.ai_questions[cat] = result
+            with st.spinner("⚡ 3T 전체 문항을 한 번에 분석 중입니다... (약 10~15초 소요)"):
+                # [핵심 2] 한 방에 15개 질문을 가져와서 뿌려줍니다! (과부하 100% 원천 차단)
+                result_json = generate_all_questions_at_once(
+                    selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback, portfolio_file
+                )
+                
+                # 안전하게 세션 스테이트에 배분
+                for cat in ["Transform", "Tomorrow", "Together"]:
+                    if cat in result_json:
+                        st.session_state.ai_questions[cat] = result_json[cat]
             st.rerun()
         elif not jd_final and jd_input:
             st.error("JD 링크를 정상적으로 읽지 못했습니다.")
@@ -307,6 +363,7 @@ def render_questions():
             with b1:
                 if st.button("🔄 전체 새로고침", key=f"ref_all_{cat}", use_container_width=True):
                     with st.spinner("새로 뽑는 중..."):
+                        # 단일 탭 새로고침은 기존 함수 사용
                         st.session_state.ai_questions[cat] = generate_questions_by_category(cat, selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
                         for idx in range(5):
                             if f"chk_{cat}_{idx}" in st.session_state:
