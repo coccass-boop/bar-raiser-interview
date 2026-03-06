@@ -121,7 +121,7 @@ if not st.session_state.authenticated:
             st.error("관리자에게 문의주세요.")
     st.stop()
 
-# --- 5. 핵심 기능 함수 (과부하 완벽 차단용 단일 호출) ---
+# --- 5. 핵심 기능 함수 ---
 @st.cache_data(ttl=3600)
 def fetch_jd(url):
     try:
@@ -132,7 +132,7 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-# [과부하 방지] 15개 문항을 한 번에 뽑아옵니다.
+# [프롬프트 수정] 전체 질문 한 번에 생성 로직
 def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
     error_dict = {"Transform": [], "Tomorrow": [], "Together": []}
@@ -142,10 +142,9 @@ def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, te
     feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
     portfolio_instruction = " 및 제출된 포트폴리오" if portfolio_file else ""
     
+    # [핵심] 초간결 및 레벨 블라인드 규칙을 매우 강하게 주입!
     prompt = f"""
     [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
-    [Target Level Requirements] 지원 레벨: {level} 
-    요구되는 역량 수준: {level_desc}
     [Task] 지원자의 이력서와 JD{portfolio_instruction}를 분석하여, 다음 3가지 Core Value를 검증하는 행동 기반 면접 질문을 각각 5개씩 총 15개 생성하세요.
     
     [Core Values to Test]
@@ -153,18 +152,19 @@ def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, te
     2. Tomorrow: {BAR_RAISER_CRITERIA['Tomorrow']}
     3. Together: {BAR_RAISER_CRITERIA['Together']}
 
-    [CRITICAL RULES]
-    1. 절대 실무 능력(Hard Skill)을 묻지 마세요.
-    2. 직관적인 단어로 편안한 구어체(1~2문장)로 짧게 작성하세요.
-    3. 지원자의 역량 수준({level})에 맞는 시야와 난이도를 검증하세요.
-    4. {feedback_instruction}
+    [CRITICAL RULES - MUST OBEY]
+    1. (직급/레벨 언급 절대 금지) 질문 내용에 지원자의 지원 레벨({level}), 직급, 연차를 절대 직접적으로 언급하거나 암시하지 마세요. (예: "L5로서~", "리더로서~" 같은 표현 절대 금지) 
+    2. (초간결 구어체) 질문은 배경 설명을 싹 빼고, 무조건 **1~2문장 이내**로 아주 짧고 명확하게 작성하세요. 면접관이 대본으로 자연스럽게 바로 읽을 수 있는 쉬운 일상 용어만 쓰세요.
+    3. 절대 실무 능력(Hard Skill)이나 전문 기술 지식을 묻지 마세요.
+    4. 겉으로는 티 내지 않되, 내부적으로는 지원자의 요구 역량 수준({level_desc})에 맞는 깊이와 시야를 검증할 수 있는 난이도로 질문을 구성하세요.
+    5. {feedback_instruction}
     
     [Output Format] 
     반드시 아래 JSON 형식으로만 응답하세요.
     {{
-        "Transform": [ {{"q": "질문", "i": "의도"}}, ...5개 ],
-        "Tomorrow": [ {{"q": "질문", "i": "의도"}}, ...5개 ],
-        "Together": [ {{"q": "질문", "i": "의도"}}, ...5개 ]
+        "Transform": [ {{"q": "초간결 질문", "i": "의도"}}, ...5개 ],
+        "Tomorrow": [ {{"q": "초간결 질문", "i": "의도"}}, ...5개 ],
+        "Together": [ {{"q": "초간결 질문", "i": "의도"}}, ...5개 ]
     }}
     """
     
@@ -193,7 +193,7 @@ def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, te
         return error_dict
     except: return error_dict
 
-# 탭 1개만 다시 뽑을 때 사용하는 함수
+# [프롬프트 수정] 탭 1개 개별/전체 새로고침 로직
 def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None, count=5):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
     if not final_api_key: return [{"q": "🚨 API 키 오류", "i": "API 키를 확인해주세요."}]
@@ -203,11 +203,17 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
     portfolio_instruction = " 및 제출된 포트폴리오" if portfolio_file else ""
     
+    # [핵심] 여기도 동일하게 강력한 제약 추가
     prompt = f"""
     [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
-    [Target] {level} ({level_desc})
     [Value] {category} : {value_desc}
-    [Task] 이력서와 JD{portfolio_instruction} 분석. {count}개 질문 JSON 생성: [{{'q': '질문', 'i': '의도'}}]. 짧은 구어체. {feedback_instruction}
+    [Task] 이력서와 JD{portfolio_instruction} 분석. {count}개 질문 JSON 생성: [{{'q': '질문', 'i': '의도'}}]. 
+    
+    [CRITICAL RULES]
+    1. (직급/레벨 금지) 질문에 레벨({level}), 직급, 연차를 절대 직접 언급하거나 티 내지 마세요.
+    2. (초간결) 배경 설명을 생략하고 무조건 1~2문장 이내의 아주 쉽고 짧은 구어체로 작성하세요.
+    3. Hard Skill 금지. 겉으로 티는 안 나지만 역량 수준({level_desc})에 맞는 난이도의 상황을 물어보세요.
+    4. {feedback_instruction}
     """
     
     try:
@@ -245,13 +251,11 @@ with st.sidebar:
     st.title("✈️ Copilot Menu")
     st.success(f"👤 접속 완료: **{st.session_state.user_nickname}** 님")
     
-    # 33번 디자인: 상단 API 변경 탭 삭제 유지
     st.markdown('<div class="security-alert">🚨 <b>보안 주의사항</b><br>민감 정보는 마스킹 후 업로드하세요.</div>', unsafe_allow_html=True)
     
     candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력", key="input_candidate")
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
-    # 33번 디자인: JD 입력 텍스트 삭제, URL만 남김
     st.subheader("2. JD (채용공고)")
     url_in = st.text_input("JD URL", placeholder="채용공고 링크를 붙여넣으세요.", label_visibility="collapsed", key="input_jd_url")
     jd_final = fetch_jd(url_in.strip()) if url_in else None
@@ -260,7 +264,6 @@ with st.sidebar:
     st.subheader("3. 이력서 업로드 (필수)")
     resume_file = st.file_uploader("이력서 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
     
-    # 33번 디자인: 포트폴리오 선택 추가
     st.subheader("3-1. 포트폴리오 업로드 (선택)")
     portfolio_file = st.file_uploader("포트폴리오 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"port_uploader_{st.session_state.uploader_key}")
     
@@ -273,7 +276,6 @@ with st.sidebar:
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
             with st.spinner("⚡ 전체 문항을 한 번에 생성 중입니다. (약 10~15초 소요)"):
-                # 한 번에 호출하여 429 과부하 완벽 방지
                 result_json = generate_all_questions_at_once(
                     selected_level, resume_file, jd_final, st.session_state.user_key, tech_feedback, portfolio_file
                 )
@@ -304,7 +306,6 @@ if c2.button("⬅️ 기본 보기 (반반)", use_container_width=True): st.sess
 if c3.button("↔️ 면접관 노트만 보기", use_container_width=True): st.session_state.view_mode = "NoteWide"; st.rerun()
 st.divider()
 
-# 디자인 100% 원복된 UI 함수들
 def render_questions():
     st.subheader("🎯 제안 질문 리스트")
     if not any(st.session_state.ai_questions.values()):
@@ -389,7 +390,6 @@ def render_notes():
             
         st.download_button("💾 결과 텍스트로 저장하기 (.txt)", txt_content, f"면접기록_{candidate_name}.txt", type="primary", use_container_width=True)
 
-# 화면 레이아웃 원복!
 if st.session_state.view_mode == "QuestionWide": 
     _, col_center, _ = st.columns([1, 3, 1])
     with col_center:
