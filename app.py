@@ -198,7 +198,6 @@ def reset_all_inputs():
     st.session_state.selected_questions = []
     if "input_candidate" in st.session_state: st.session_state.input_candidate = ""
     if "input_jd_url" in st.session_state: st.session_state.input_jd_url = ""
-    if "input_jd_txt" in st.session_state: st.session_state.input_jd_txt = ""
     if "input_feedback" in st.session_state: st.session_state.input_feedback = ""
     if "input_agree" in st.session_state: st.session_state.input_agree = False
     if "input_level" in st.session_state: st.session_state.input_level = list(LEVEL_GUIDELINES.keys())[0]
@@ -209,21 +208,15 @@ with st.sidebar:
     st.title("✈️ Copilot Menu")
     st.success(f"👤 접속 완료: **{st.session_state.user_nickname}** 님")
     
-    # [제거 완료] 불필요한 API 키 확인 탭 삭제
-    
     st.markdown('<div class="security-alert">🚨 <b>보안 주의사항</b><br>민감 정보는 마스킹 후 업로드하세요.</div>', unsafe_allow_html=True)
     
     candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력", key="input_candidate")
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
+    # [수정 완료] 텍스트 탭 삭제, 깔끔하게 URL만 남겼습니다!
     st.subheader("2. JD (채용공고)")
-    tab1, tab2 = st.tabs(["🔗 URL", "📝 텍스트"])
-    with tab1:
-        url_in = st.text_input("URL 입력", key="input_jd_url")
-        jd_fetched = fetch_jd(url_in) if url_in else None
-    with tab2: 
-        jd_txt_area = st.text_area("내용 붙여넣기", height=100, key="input_jd_txt")
-    jd_final = jd_txt_area if jd_txt_area else jd_fetched
+    url_in = st.text_input("🔗 URL 입력", placeholder="채용공고 링크를 붙여넣어주세요", key="input_jd_url")
+    jd_final = fetch_jd(url_in) if url_in else None
 
     st.subheader("3. 이력서 업로드 (필수)")
     resume_file = st.file_uploader("이력서 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
