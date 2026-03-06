@@ -132,7 +132,7 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-# [프롬프트 수정] 전체 질문 한 번에 생성 로직
+# [프롬프트 롤백] 33번의 황금 밸런스 질문 퀄리티로 복구!
 def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
     error_dict = {"Transform": [], "Tomorrow": [], "Together": []}
@@ -142,7 +142,6 @@ def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, te
     feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
     portfolio_instruction = " 및 제출된 포트폴리오" if portfolio_file else ""
     
-    # [핵심] 초간결 및 레벨 블라인드 규칙을 매우 강하게 주입!
     prompt = f"""
     [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
     [Task] 지원자의 이력서와 JD{portfolio_instruction}를 분석하여, 다음 3가지 Core Value를 검증하는 행동 기반 면접 질문을 각각 5개씩 총 15개 생성하세요.
@@ -154,17 +153,18 @@ def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, te
 
     [CRITICAL RULES - MUST OBEY]
     1. (직급/레벨 언급 절대 금지) 질문 내용에 지원자의 지원 레벨({level}), 직급, 연차를 절대 직접적으로 언급하거나 암시하지 마세요. (예: "L5로서~", "리더로서~" 같은 표현 절대 금지) 
-    2. (초간결 구어체) 질문은 배경 설명을 싹 빼고, 무조건 **1~2문장 이내**로 아주 짧고 명확하게 작성하세요. 면접관이 대본으로 자연스럽게 바로 읽을 수 있는 쉬운 일상 용어만 쓰세요.
-    3. 절대 실무 능력(Hard Skill)이나 전문 기술 지식을 묻지 마세요.
-    4. 겉으로는 티 내지 않되, 내부적으로는 지원자의 요구 역량 수준({level_desc})에 맞는 깊이와 시야를 검증할 수 있는 난이도로 질문을 구성하세요.
-    5. {feedback_instruction}
+    2. 절대 실무 능력이나 기술적 지식(Hard Skill)을 묻지 마세요.
+    3. 어려운 HR 전문 용어나 추상적인 단어는 철저히 배제하고, 누구나 이해하기 쉬운 직관적인 단어로만 질문하세요.
+    4. 구구절절한 서론을 빼고, 면접관이 대본으로 바로 읽을 수 있는 자연스럽고 편안한 구어체(1~2문장)로 작성하세요. (단답형이 되지 않게 자연스러운 맥락을 살려주세요)
+    5. 겉으로는 티 내지 않되, 내부적으로는 지원자의 요구 역량 수준({level_desc})에 맞는 깊이와 시야를 검증할 수 있는 난이도로 질문을 구성하세요.
+    6. {feedback_instruction}
     
     [Output Format] 
     반드시 아래 JSON 형식으로만 응답하세요.
     {{
-        "Transform": [ {{"q": "초간결 질문", "i": "의도"}}, ...5개 ],
-        "Tomorrow": [ {{"q": "초간결 질문", "i": "의도"}}, ...5개 ],
-        "Together": [ {{"q": "초간결 질문", "i": "의도"}}, ...5개 ]
+        "Transform": [ {{"q": "면접관이 바로 읽을 수 있는 자연스러운 질문", "i": "명확한 의도 (1줄)"}}, ...5개 ],
+        "Tomorrow": [ {{"q": "면접관이 바로 읽을 수 있는 자연스러운 질문", "i": "명확한 의도 (1줄)"}}, ...5개 ],
+        "Together": [ {{"q": "면접관이 바로 읽을 수 있는 자연스러운 질문", "i": "명확한 의도 (1줄)"}}, ...5개 ]
     }}
     """
     
@@ -193,7 +193,6 @@ def generate_all_questions_at_once(level, resume_file, jd_text, user_api_key, te
         return error_dict
     except: return error_dict
 
-# [프롬프트 수정] 탭 1개 개별/전체 새로고침 로직
 def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None, count=5):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
     if not final_api_key: return [{"q": "🚨 API 키 오류", "i": "API 키를 확인해주세요."}]
@@ -203,15 +202,14 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
     feedback_instruction = f" [실무면접 전달사항 반영 필수]: {tech_feedback}." if tech_feedback else ""
     portfolio_instruction = " 및 제출된 포트폴리오" if portfolio_file else ""
     
-    # [핵심] 여기도 동일하게 강력한 제약 추가
     prompt = f"""
     [Role] 당신은 메가존의 최고 수준 'Bar Raiser' 면접관입니다.
     [Value] {category} : {value_desc}
-    [Task] 이력서와 JD{portfolio_instruction} 분석. {count}개 질문 JSON 생성: [{{'q': '질문', 'i': '의도'}}]. 
+    [Task] 이력서와 JD{portfolio_instruction} 분석. {count}개 질문 JSON 생성: [{{'q': '면접관이 바로 읽을 수 있는 자연스러운 질문', 'i': '명확한 의도 (1줄)'}}]. 
     
     [CRITICAL RULES]
-    1. (직급/레벨 금지) 질문에 레벨({level}), 직급, 연차를 절대 직접 언급하거나 티 내지 마세요.
-    2. (초간결) 배경 설명을 생략하고 무조건 1~2문장 이내의 아주 쉽고 짧은 구어체로 작성하세요.
+    1. (직급/레벨 언급 금지) 질문에 레벨({level}), 직급, 연차를 절대 직접 언급하거나 티 내지 마세요.
+    2. 어려운 단어는 빼고, 면접관이 대본으로 바로 읽을 수 있는 자연스럽고 편안한 구어체(1~2문장)로 작성하세요.
     3. Hard Skill 금지. 겉으로 티는 안 나지만 역량 수준({level_desc})에 맞는 난이도의 상황을 물어보세요.
     4. {feedback_instruction}
     """
