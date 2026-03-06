@@ -133,10 +133,11 @@ def fetch_jd(url):
             return soup.get_text(separator=' ', strip=True) if len(soup.get_text()) > 50 else None
     except: return None
 
-# [반영 1] portfolio_file 파라미터 추가
 def generate_questions_by_category(category, level, resume_file, jd_text, user_api_key, tech_feedback="", portfolio_file=None, count=5):
     final_api_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY")
-    if not final_api_key: return []
+    
+    # [긴급 방어막] API 키가 없으면 화면에 보이게 에러 반환!
+    if not final_api_key: return [{"q": "🚨 API 키 오류", "i": "API 키를 확인해주세요."}]
 
     level_desc = LEVEL_GUIDELINES.get(level, "")
     value_desc = BAR_RAISER_CRITERIA[category]
@@ -181,15 +182,26 @@ def generate_questions_by_category(category, level, resume_file, jd_text, user_a
         for attempt in range(3):
             res = requests.post(url, headers={'Content-Type': 'application/json'}, data=json.dumps(data), timeout=60)
             if res.status_code == 200:
-                raw = res.json()['candidates'][0]['content']['parts'][0]['text']
-                match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
-                return json.loads(match.group()) if match else []
-            elif res.status_code in [429, 500, 503]:
-                time.sleep(3)
+                try:
+                    raw = res.json()['candidates'][0]['content']['parts'][0]['text']
+                    match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
+                    if match:
+                        return json.loads(match.group())
+                    else:
+                        return [{"q": "🚨 AI 응답 양식 오류", "i": "다시 뽑기를 눌러주세요."}]
+                except:
+                    return [{"q": "🚨 내용 추출 실패", "i": "다시 뽑기를 눌러주세요."}]
+            elif res.status_code == 429:
+                time.sleep(4) # 과부하 시 휴식 후 재시도
                 continue
-            else: return []
-    except Exception: return []
-    return []
+            else: 
+                # [긴급 방어막] 무슨 에러인지 질문 카드에 직접 띄웁니다!
+                return [{"q": f"🚨 구글 API 오류 ({res.status_code})", "i": "서버 접속 실패. 잠시 후 시도해주세요."}]
+        
+        return [{"q": "🚨 구글 서버 과부하 (429)", "i": "잠시만(10초) 기다렸다가 새로고침을 눌러주세요."}]
+
+    except Exception as e: 
+        return [{"q": "🚨 시스템/파일 오류", "i": "파일 용량이 너무 크거나 일시적 오류입니다."}]
 
 def reset_all_inputs():
     st.session_state.ai_questions = {"Transform": [], "Tomorrow": [], "Together": []}
@@ -206,22 +218,23 @@ with st.sidebar:
     st.title("✈️ Copilot Menu")
     st.success(f"👤 접속 완료: **{st.session_state.user_nickname}** 님")
     
-    # [반영 2] 상단 API 변경 칸(expander) 삭제 완료
-    
     st.markdown('<div class="security-alert">🚨 <b>보안 주의사항</b><br>민감 정보는 마스킹 후 업로드하세요.</div>', unsafe_allow_html=True)
     
     candidate_name = st.text_input("👤 후보자 이름", placeholder="이름 입력", key="input_candidate")
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
-    # [반영 3] JD URL만 남기고 텍스트 입력 삭제 + 라벨 숨김 및 placeholder 변경
     st.subheader("2. JD (채용공고)")
-    url_in = st.text_input("JD URL", placeholder="채용공고 링크를 붙여넣으세요.", label_visibility="collapsed", key="input_jd_url")
-    jd_final = fetch_jd(url_in) if url_in else None
+    jd_input = st.text_input("JD URL", placeholder="채용공고 링크를 붙여넣으세요.", label_visibility="collapsed", key="input_jd_url")
+    
+    jd_final = None
+    if jd_input:
+        jd_fetched = fetch_jd(jd_input.strip())
+        # [긴급 방어막] 보안으로 사이트를 못 읽었어도, 에러 내지 않고 링크 텍스트 자체를 AI에게 강제로 줍니다! (앱 뻗음 방지)
+        jd_final = jd_fetched if jd_fetched else jd_input.strip()
 
     st.subheader("3. 이력서 업로드 (필수)")
     resume_file = st.file_uploader("이력서 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"uploader_{st.session_state.uploader_key}")
     
-    # [반영 1] 포트폴리오 (선택) 추가
     st.subheader("3-1. 포트폴리오 업로드 (선택)")
     portfolio_file = st.file_uploader("포트폴리오 파일 선택", type=["pdf", "png", "jpg", "jpeg"], label_visibility="collapsed", key=f"port_uploader_{st.session_state.uploader_key}")
     
@@ -233,21 +246,25 @@ with st.sidebar:
     
     if st.button("질문 생성 시작 🚀", type="primary", use_container_width=True, disabled=not agree):
         if resume_file and jd_final:
-            with st.spinner("⚡ 3T 핵심 가치 기반 질문을 생성 중입니다..."):
+            with st.spinner("⚡ 3T 핵심 가치 기반 질문을 생성 중입니다... (약 10초 소요)"):
                 current_api_key = st.session_state.user_key
 
-                # 33번 코드 본연의 병렬 처리 로직 그대로 유지
-                def fetch_cat(cat, api_key):
+                # [긴급 방어막] 3명의 일꾼이 동시에 뛰쳐나가서 과부하(429) 걸리는 것을 막기 위한 완벽한 '시차 출발'
+                def fetch_cat_safe(cat, api_key, delay):
+                    time.sleep(delay) # 0초, 2초, 4초 대기 후 출발
                     return cat, generate_questions_by_category(cat, selected_level, resume_file, jd_final, api_key, tech_feedback=tech_feedback, portfolio_file=portfolio_file, count=5)
 
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    futures = [executor.submit(fetch_cat, cat, current_api_key) for cat in ["Transform", "Tomorrow", "Together"]]
+                    futures = []
+                    for idx, cat in enumerate(["Transform", "Tomorrow", "Together"]):
+                        futures.append(executor.submit(fetch_cat_safe, cat, current_api_key, idx * 2.0))
+                        
                     for future in concurrent.futures.as_completed(futures):
                         cat, result = future.result()
                         st.session_state.ai_questions[cat] = result
             st.rerun()
         else:
-            st.error("이력서와 JD를 모두 입력해주세요.")
+            st.error("이력서와 JD 링크를 모두 입력해주세요.")
 
     st.divider()
     
