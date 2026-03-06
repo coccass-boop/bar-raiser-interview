@@ -227,8 +227,7 @@ with st.sidebar:
     selected_level = st.selectbox("1. 레벨 선택", list(LEVEL_GUIDELINES.keys()), key="input_level")
     
     st.subheader("2. JD (채용공고)")
-    # [수정] 요청하신 대로 문구를 'JD URL'로 깔끔하게 롤백했습니다!
-    jd_input = st.text_area("JD URL", placeholder="채용공고 링크를 넣거나 텍스트를 복사해서 붙여넣으세요.", height=100, key="input_jd_txt")
+    jd_input = st.text_area(placeholder="나인하이어 채용공고 링크를 붙여넣으세요.", height=100, key="input_jd_txt")
     
     jd_final = None
     if jd_input:
